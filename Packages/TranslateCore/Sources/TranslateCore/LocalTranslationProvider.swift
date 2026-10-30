@@ -81,11 +81,14 @@ public enum HyMTPrompt {
 
 public enum LocalEngineError: Error, Equatable, LocalizedError {
     case modelNotInstalled
+    case unsupportedMac
 
     public var errorDescription: String? {
         switch self {
         case .modelNotInstalled:
             "번역 모델을 아직 받지 않았습니다. 설정(⌘,)의 로컬 LLM에서 '모델 받기'를 누르세요."
+        case .unsupportedMac:
+            "로컬 LLM은 Apple Silicon(M1 이상) Mac에서만 쓸 수 있습니다. 설정(⌘,)에서 다른 엔진을 고르세요."
         }
     }
 }

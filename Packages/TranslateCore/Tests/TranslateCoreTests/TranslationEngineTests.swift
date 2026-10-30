@@ -20,4 +20,11 @@ struct TranslationEngineTests {
         #expect(TranslationEngine.local.executableName == nil)
         #expect(TranslationEngine.codex.knownLocations.contains("~/.volta/bin/codex"))
     }
+
+    @Test func localEngineNeedsAppleSilicon() {
+        #expect(TranslationEngine.local.isSupported(onAppleSilicon: true))
+        #expect(!TranslationEngine.local.isSupported(onAppleSilicon: false))
+        #expect(TranslationEngine.claudeCode.isSupported(onAppleSilicon: false))
+        #expect(TranslationEngine.codex.isSupported(onAppleSilicon: false))
+    }
 }

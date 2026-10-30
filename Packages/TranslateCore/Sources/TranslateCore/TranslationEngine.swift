@@ -53,4 +53,9 @@ public enum TranslationEngine: String, CaseIterable, Codable, Identifiable, Send
         case .local: []
         }
     }
+
+    /// 이 Mac에서 쓸 수 있는지. 로컬 엔진(MLX)은 Apple Silicon(M1 이상)에서만 돈다
+    public func isSupported(onAppleSilicon: Bool) -> Bool {
+        self != .local || onAppleSilicon
+    }
 }

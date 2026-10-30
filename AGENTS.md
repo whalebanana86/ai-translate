@@ -18,6 +18,7 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
 | 번역 엔진 | 처음 실행 때와 설정에서 사용자가 고른다: Claude Code CLI(`claude -p`, haiku) / Codex CLI(`codex exec`) / 로컬 LLM(Hy-MT2 1.8B, MLX). 로컬 모델은 사용자가 버튼으로 받는다 (2026-10-30 사용자 결정) |
 | 쓰지 않는 엔진 | Apple 번역(Translation 프레임워크): 비교 결과 가장 빠르지만(0.2~0.8초) 맥락 오역이 많음 (2026-10-30 사용자 결정, `.agent/archive/TASK-012.md`) |
 | 최소 macOS | 15.0 |
+| 로컬 LLM 지원 Mac | Apple Silicon(M1 이상)만. Intel Mac은 로컬 LLM을 끄고 Claude Code·Codex만 (2026-10-30 사용자 결정). 앱 자체는 Intel(x86_64)로도 빌드됨 |
 | Xcode 프로젝트 | XcodeGen(`project.yml`)으로 생성. `.xcodeproj`는 git에서 제외 |
 | Lint | Xcode 내장 `swift format` (설정: `.swift-format`) |
 
@@ -86,6 +87,7 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
     프롬프트에 특수 토큰이 있으므로 `addSpecialTokens: false`. 샘플링은 모델 카드 권장값. 측정(M5): 불러오기 1.25초,
     생성 초당 101~112토큰, 짧은 문구 0.14초·한 줄 0.35초·긴 문단 1.2초
   - 빌드에 Metal 툴체인이 필요하다 (Xcode 26은 따로 받음: `xcodebuild -downloadComponent MetalToolchain`)
+  - Intel 제외: `TranslationEngine.isSupported(onAppleSilicon:)`, 앱은 `arch(arm64)`로 판단(`EngineSettings.isAppleSilicon`). Intel·Rosetta에서는 설정의 로컬 카드를 끄고, 저장된 선택이 로컬이면 다시 고르게 한다
   - 로컬 엔진은 생성되는 대로 보여준다(`onPartial`, 화면 갱신 0.05초 간격). 최종 번역이 오면 그것으로 바꾼다
   - 미리 준비: 앱 시작·엔진 변경·모델 받기 완료 때 `EngineSettings.prepare()`로 엔진을 만들어 둔다(같은 엔진 준비는 하나만).
     로컬 모델은 불러온 뒤 짧은 예열 생성으로 GPU 커널을 준비한다(첫 생성 4.3초 측정). 로컬 엔진을 고른 동안은 모델(약 1.2GB)을

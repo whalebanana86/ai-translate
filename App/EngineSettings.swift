@@ -22,6 +22,15 @@ final class EngineSettings {
 
     private static let engineKey = "TranslationEngine"
 
+    /// 로컬 LLM(MLX)은 Apple Silicon에서만 돈다. Intel용 빌드(Rosetta 포함)에서는 고를 수 없다
+    static var isAppleSilicon: Bool {
+        #if arch(arm64)
+            true
+        #else
+            false
+        #endif
+    }
+
     let localModel = LocalModel.hyMT2
     private let store = ModelStore.standard
 
@@ -47,7 +56,9 @@ final class EngineSettings {
         (engine: TranslationEngine, task: Task<any TranslationProvider, any Error>)?
 
     init() {
+        // 이 Mac에서 쓸 수 없는 엔진이 저장돼 있으면(다른 Mac에서 옮겨 온 설정 등) 다시 고르게 한다
         engine = UserDefaults.standard.string(forKey: Self.engineKey).flatMap(TranslationEngine.init(rawValue:))
+            .flatMap { $0.isSupported(onAppleSilicon: Self.isAppleSilicon) ? $0 : nil }
         modelState = ModelStore.standard.isInstalled(LocalModel.hyMT2) ? .installed : .notInstalled
     }
 
@@ -153,6 +164,7 @@ final class EngineSettings {
         case .codex:
             return try await CodexProvider.locate()
         case .local:
+            guard isAppleSilicon else { throw LocalEngineError.unsupportedMac }
             guard store.isInstalled(model) else { throw LocalEngineError.modelNotInstalled }
             return LocalTranslationProvider(
                 generator: try await LocalTextGenerator.load(directory: store.directory(for: model)))

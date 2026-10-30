@@ -49,6 +49,7 @@ private struct EngineCard: View {
     let engine: TranslationEngine
 
     private var isSelected: Bool { settings.engine == engine }
+    private var isSupported: Bool { engine.isSupported(onAppleSilicon: EngineSettings.isAppleSilicon) }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -61,7 +62,11 @@ private struct EngineCard: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                if engine == .local {
+                if !isSupported {
+                    Label("Apple Silicon(M1 이상) Mac에서만 쓸 수 있습니다.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if engine == .local {
                     LocalModelStatus(settings: settings)
                 } else {
                     CLIStatusLine(status: settings.cliStatus[engine], name: engine.executableName ?? "")
@@ -78,8 +83,13 @@ private struct EngineCard: View {
             RoundedRectangle(cornerRadius: 10)
                 .strokeBorder(isSelected ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: 1)
         )
+        .opacity(isSupported ? 1 : 0.55)
         .contentShape(Rectangle())
-        .onTapGesture { settings.engine = engine }
+        .onTapGesture {
+            if isSupported {
+                settings.engine = engine
+            }
+        }
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
