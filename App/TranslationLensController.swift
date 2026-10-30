@@ -105,6 +105,11 @@ final class LensSession {
     private var inFlightTexts: [String] = []
     /// 요청 번호. 버린 요청이 늦게 끝나도 새 요청 상태를 덮어쓰지 않게 한다
     private var translateGeneration = 0
+    /// 생성 중인 번역(원문 → 지금까지 나온 글). 로컬 엔진이 생성하는 대로 대기 문단 자리에 그린다
+    private var partials: [String: String] = [:]
+    private var lastPartialRefresh: ContinuousClock.Instant?
+    /// 중간 글로 화면을 다시 그리는 최소 간격 (생성은 초당 약 100토큰)
+    private static let partialRefreshInterval: Duration = .milliseconds(50)
     /// 이동·크기 조절 중이면 시작 시점의 마우스 위치와 렌즈 영역
     private var interaction: (mouse: CGPoint, frame: CGRect)?
     private var scrollMonitor: Any?
@@ -362,9 +367,14 @@ final class LensSession {
         translateGeneration += 1
         let generation = translateGeneration
         inFlightTexts = batch.map(\.text)
+        let showPartial: @MainActor (String, String) -> Void = { [weak self] text, partial in
+            self?.showPartial(partial, for: text, language: language, generation: generation)
+        }
         translateTask = Task { [weak self] in
             do {
-                let translated = try await translator.translate(batch, to: language)
+                let translated = try await translator.translate(batch, to: language) { block, partial in
+                    Task { @MainActor in showPartial(block.text, partial) }
+                }
                 let engine = String(describing: type(of: translator.provider))
                 let elapsed = Self.ms(.now - requested)
                 Self.log.info(
@@ -374,6 +384,7 @@ final class LensSession {
                 // 버린 요청이라도 번역은 기억해 둔다 (다시 스크롤해 올라오면 바로 보인다)
                 for block in translated {
                     self.memory.store(block.translation, of: block.source.text, in: language)
+                    self.partials[block.source.text] = nil
                 }
                 guard self.translateGeneration == generation else { return }
                 self.translateTask = nil
@@ -398,11 +409,26 @@ final class LensSession {
         cancelTranslation()
     }
 
+    /// 생성 중인 번역을 그린다. 이미 끝났거나 버린 요청·바뀐 언어의 중간 글은 무시한다
+    private func showPartial(_ partial: String, for text: String, language: TargetLanguage, generation: Int) {
+        guard translateGeneration == generation, model.language == language,
+            memory.translation(of: text, in: language) == nil
+        else { return }
+        partials[text] = partial
+        let now = ContinuousClock.now
+        if let lastPartialRefresh, now - lastPartialRefresh < Self.partialRefreshInterval {
+            return
+        }
+        lastPartialRefresh = now
+        refreshParagraphs()
+    }
+
     private func cancelTranslation() {
         translateTask?.cancel()
         translateTask = nil
         translateGeneration += 1
         inFlightTexts = []
+        partials = [:]
     }
 
     private func changeLanguage(to language: TargetLanguage) {
@@ -416,8 +442,12 @@ final class LensSession {
         let frames = LensGeometry.paragraphFrames(of: blocks, scale: scale, lensSize: frame.size)
         model.paragraphs = zip(blocks, frames).enumerated().map { index, pair in
             let (block, paragraphFrame) = pair
+            var content = memory.content(of: block, in: model.language)
+            if case .pending = content, let partial = partials[block.text], !partial.isEmpty {
+                content = .translated(partial)
+            }
             return LensModel.Paragraph(
-                id: index, content: memory.content(of: block, in: model.language), frame: paragraphFrame,
+                id: index, content: content, frame: paragraphFrame,
                 fontSize: LensGeometry.fontSize(of: block, scale: scale),
                 colors: colors.indices.contains(index) ? colors[index] : .plain)
         }

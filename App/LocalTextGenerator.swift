@@ -23,7 +23,9 @@ final class LocalTextGenerator: TextGenerating, Sendable {
         return generator
     }
 
-    func generate(prompt: String, maxTokens: Int) async throws -> String {
+    func generate(prompt: String, maxTokens: Int, onPartial: @escaping @Sendable (String) -> Void) async throws
+        -> String
+    {
         // 프롬프트에 채팅 형식의 특수 토큰이 이미 들어 있으므로 토크나이저가 더 붙이지 않게 한다
         let tokens = await container.perform { context in
             context.tokenizer.encode(text: prompt, addSpecialTokens: false)
@@ -37,6 +39,7 @@ final class LocalTextGenerator: TextGenerating, Sendable {
             try Task.checkCancellation()
             if let chunk = event.chunk {
                 output += chunk
+                onPartial(output)
             }
         }
         return output
