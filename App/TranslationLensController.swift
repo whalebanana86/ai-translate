@@ -70,7 +70,6 @@ final class TranslationLensController {
 final class LensSession {
     private static let toolbarHeight: CGFloat = 34
     private static let handleSize: CGFloat = 18
-    private static let captureInterval: Duration = .milliseconds(500)
     /// 마지막 스크롤 뒤 이만큼 지나야 스크롤이 멈춘 것으로 본다
     private static let scrollQuietPeriod: Duration = .milliseconds(500)
     private static let aboveLens = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)
@@ -111,6 +110,8 @@ final class LensSession {
     private var scrollMonitor: Any?
     /// 렌즈 위에서 마지막으로 스크롤한 때
     private var lastScroll: ContinuousClock.Instant?
+    /// 마지막 캡처에서 화면이 바뀌는 중이었는지. 그동안은 자주 찍어 멈춤을 빨리 확인한다 (`CaptureSchedule`)
+    private var isScreenChanging = false
     /// 화면이 바뀌기 시작한 때(렌즈 생성·스크롤·큰 변화). 번역이 다 보일 때까지의 체감 시간을 잰다
     private var changeStartedAt: ContinuousClock.Instant?
 
@@ -162,7 +163,8 @@ final class LensSession {
         loopTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.tick()
-                try? await Task.sleep(for: Self.captureInterval)
+                let delay = self?.nextCaptureDelay() ?? CaptureSchedule.idleInterval
+                try? await Task.sleep(for: delay)
             }
         }
     }
@@ -190,7 +192,9 @@ final class LensSession {
             let image = try await capturer.capture(selection)
             let captured = ContinuousClock.now
             guard interaction == nil, let fingerprint = ImageFingerprint(image) else { return }
-            switch tracker.observe(fingerprint) {
+            let change = tracker.observe(fingerprint)
+            isScreenChanging = change == .movedAway
+            switch change {
             case .unchanged:
                 // 스크롤했지만 화면이 그대로인 경우(페이지 끝 등). 스크롤이 멈추면 다시 보여준다
                 if !scrolled(since: .now - Self.scrollQuietPeriod) {
@@ -227,14 +231,16 @@ final class LensSession {
             let missing = memory.missing(in: blocks, for: model.language).count
             let timings = (
                 capture: Self.ms(captured - started), ocr: Self.ms(ocred - settled),
-                colors: Self.ms(colored - ocred), layout: Self.ms(.now - colored), sinceChange: sinceChange()
+                colors: Self.ms(colored - ocred), layout: Self.ms(.now - colored), sinceChange: sinceChange(),
+                sinceScroll: lastScroll.map { Self.ms(.now - $0) } ?? -1
             )
             Self.log.info(
                 """
                 인식: 캡처 \(timings.capture, privacy: .public)ms · \
                 OCR \(timings.ocr, privacy: .public)ms · 색 \(timings.colors, privacy: .public)ms · \
                 배치 \(timings.layout, privacy: .public)ms · 문단 \(recognized.count, privacy: .public)개 \
-                (번역 필요 \(missing, privacy: .public)개) · 변화 후 \(timings.sinceChange, privacy: .public)ms
+                (번역 필요 \(missing, privacy: .public)개) · 변화 후 \(timings.sinceChange, privacy: .public)ms · \
+                마지막 스크롤 후 \(timings.sinceScroll, privacy: .public)ms
                 """)
             // 인식하는 사이에 또 스크롤했다면 숨긴 채로 다음 화면을 기다린다
             if !scrolled(since: started) {
@@ -255,6 +261,10 @@ final class LensSession {
         markChange()
         lastScroll = .now
         model.isOutdated = true
+    }
+
+    private func nextCaptureDelay() -> Duration {
+        CaptureSchedule.delay(isChanging: isScreenChanging, lastScroll: lastScroll, now: .now)
     }
 
     private func markChange() {

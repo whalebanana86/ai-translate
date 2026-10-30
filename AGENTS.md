@@ -61,7 +61,10 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
     본체 창은 그림자를 끈다 (투명 창이라 번역 문단마다 그림자가 생긴다)
   - 도구 막대(렌즈 위, 공간이 없으면 안쪽): 끌어서 이동, 진행 표시, 언어, 원문 보기(본체를 잠시 투명하게), 복사, 닫기
   - 크기 조절 손잡이(오른쪽 아래). 이동·크기 조절 중에는 캡처를 멈추고 끝나면 변화 감지를 초기화한다
-  - 감시: 0.5초마다 캡처 → `ImageFingerprint`/`ChangeTracker`로 바뀐 뒤 멈췄을 때만 OCR (기준값은 측정으로 정함)
+  - 감시: 캡처 → `ImageFingerprint`/`ChangeTracker`로 바뀐 뒤 멈췄을 때만 OCR (기준값은 측정으로 정함). 간격은
+    `CaptureSchedule`: 평소 0.5초, 화면이 바뀌는 중 0.15초, 스크롤 중이면 마지막 스크롤 0.15초 뒤 바로
+  - 단계별 시간 기록(`Logger` subsystem `com.example.AITranslate`, category `pipeline`, info 단계, 숫자·엔진 이름만).
+    보기: `/usr/bin/log stream --level info --predicate 'subsystem == "com.example.AITranslate"'` (zsh는 `log`가 내장 명령)
   - 지난 번역 숨김(`LensModel.isOutdated`): 렌즈 위 스크롤(전역 스크롤 모니터, 마우스 이벤트라 권한 불필요), 처리한 화면에서
     크게 벗어난 화면(`ChangeTracker.movedAwayThreshold`, 단어 하나 변경은 제외), 이동·크기 조절 중에는 번역을 그리지 않는다.
     다시 인식하면 보이고, 화면이 그대로면 스크롤이 멈춘 뒤 보인다. 인식 중에 또 스크롤했으면 다음 화면을 기다린다
