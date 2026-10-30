@@ -44,7 +44,7 @@ public struct BlockColors: Equatable, Sendable {
     public static let plain = BlockColors(background: .white, text: .black)
 
     /// 문단이 커도 이만큼만 본다
-    static let maxSamples = 20_000
+    static let maxSamples = 4_000
     /// 바탕과 이보다 가까운 색만 있으면(0~255 RGB 거리) 글자가 없는 것으로 본다
     static let minimumTextDistance = 40.0
     /// 글자색 후보: 바탕에서 가장 먼 색과의 거리의 이 비율 이상 떨어진 색. 글자 가장자리의 섞인 색을 뺀다

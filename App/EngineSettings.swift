@@ -39,6 +39,7 @@ final class EngineSettings {
     private(set) var modelState: ModelState
 
     @ObservationIgnored var onEngineChange: (() -> Void)?
+    @ObservationIgnored var onMemoryClear: (() -> Void)?
     @ObservationIgnored private var downloadTask: Task<Void, Never>?
     /// 엔진을 찾거나 모델을 불러오는 데 시간이 걸리므로 렌즈를 새로 만들어도 다시 쓴다
     @ObservationIgnored private var cachedProvider: (engine: TranslationEngine, provider: any TranslationProvider)?
@@ -101,6 +102,14 @@ final class EngineSettings {
         try? store.remove(localModel)
         modelState = .notInstalled
         cachedProvider = nil
+    }
+
+    // MARK: 번역 기억
+
+    /// 디스크의 번역 기억(모든 엔진)과 열린 렌즈의 기억을 지운다
+    func clearTranslationMemory() {
+        try? TranslationMemoryStore.standard.removeAll()
+        onMemoryClear?()
     }
 
     // MARK: 렌즈가 쓰는 번역 엔진

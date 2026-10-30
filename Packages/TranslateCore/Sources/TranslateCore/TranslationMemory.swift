@@ -6,7 +6,7 @@ public struct TranslationMemory: Sendable {
     }
 
     public let capacity: Int
-    private var entries: [Key: String] = [:]
+    private var table: [Key: String] = [:]
     /// 오래된 것부터. 용량을 넘으면 앞에서부터 지운다
     private var order: [Key] = []
 
@@ -14,17 +14,45 @@ public struct TranslationMemory: Sendable {
         self.capacity = capacity
     }
 
+    /// 저장용 항목. 오래된 것부터
+    public struct Entry: Codable, Equatable, Sendable {
+        public var text: String
+        public var language: TargetLanguage
+        public var translation: String
+
+        public init(text: String, language: TargetLanguage, translation: String) {
+            self.text = text
+            self.language = language
+            self.translation = translation
+        }
+    }
+
+    /// 오래된 것부터 모든 항목
+    public var entries: [Entry] {
+        order.compactMap { key in
+            table[key].map { Entry(text: key.text, language: key.language, translation: $0) }
+        }
+    }
+
+    /// 저장한 항목으로 되살린다. 용량을 넘으면 오래된 것부터 버린다
+    public init(capacity: Int = 500, entries: [Entry]) {
+        self.init(capacity: capacity)
+        for entry in entries {
+            store(entry.translation, of: entry.text, in: entry.language)
+        }
+    }
+
     public func translation(of text: String, in language: TargetLanguage) -> String? {
-        entries[Key(text: text, language: language)]
+        table[Key(text: text, language: language)]
     }
 
     public mutating func store(_ translation: String, of text: String, in language: TargetLanguage) {
         let key = Key(text: text, language: language)
-        if entries.updateValue(translation, forKey: key) == nil {
+        if table.updateValue(translation, forKey: key) == nil {
             order.append(key)
         }
         while order.count > capacity {
-            entries.removeValue(forKey: order.removeFirst())
+            table.removeValue(forKey: order.removeFirst())
         }
     }
 

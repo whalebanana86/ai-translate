@@ -36,6 +36,7 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
   - 좌표 변환은 `TranslateCore/ScreenGeometry`에서만 하고 테스트한다. 선택은 드래그를 시작한 화면 안으로 자른다
 - 캡처: ScreenCaptureKit(`SCScreenshotManager`). `CGWindowListCreateImage`는 쓰지 않는다 (macOS 15부터 사용 불가)
   - 구현: `App/ScreenCapturer.swift`. 이 앱의 창은 `excludingApplications`로 빼고, 크기는 `backingScaleFactor`로 원본 픽셀
+  - 창 목록 조회(`SCShareableContent`)와 필터는 화면별로 5초 재사용하고, 캡처가 실패하면 다시 조회한다
 - OCR: Vision `RecognizeTextRequest`(기기 내 처리). 구현: `TranslateCore/TextRecognizer.swift`
   - 반드시 언어 자동 감지 + 언어 힌트로 쓴다. 기본값(en-US 하나)은 한국어를 인식하지 못하고,
     자동 감지 없이 여러 언어를 지정하면 일본어 줄이 빠진다 (macOS 26.3 확인)
@@ -193,6 +194,10 @@ swift format format -i -r --configuration .swift-format App Packages/TranslateCo
 ### 개인정보
 
 - 캡처 이미지, 인식한 텍스트, 번역 결과를 로그나 크래시 리포트에 남기지 않는다.
+- 캡처 이미지는 파일로 저장하지 않는다 (메모리에서 쓰고 버린다). 번역 엔진에는 인식한 글만 보낸다.
+- 번역 기억(`TranslateCore/TranslationMemoryStore.swift`): 같은 글을 다시 번역하지 않도록 원문·번역을 엔진별로
+  `~/Library/Application Support/AITranslate/TranslationMemory/<엔진>.json`에 저장한다(파일 권한 0600, 엔진별 최근 500개).
+  렌즈를 만들 때 불러오고 닫을 때·엔진을 바꿀 때·앱을 끌 때 저장한다. 설정의 "번역 기억 지우기"로 파일과 열린 렌즈의 기억을 지운다
 - 외부 엔진으로 처음 번역하기 전에 선택 영역의 내용이 어디로 전송되는지 알린다. 구현: `App/DataTransmissionNotice.swift`
   (엔진별 1회. 동의 여부는 UserDefaults `DataTransmissionNoticeAccepted`(Claude)·`DataTransmissionNoticeAccepted.codex`.
   로컬 엔진은 전송하지 않으므로 묻지 않는다)

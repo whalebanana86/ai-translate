@@ -11,6 +11,7 @@ final class TranslationLensController {
     private let settings: EngineSettings
     private let overlay = SelectionOverlayController()
     private let capturer = ScreenCapturer()
+    private let memoryStore = TranslationMemoryStore.standard
     private var lens: LensSession?
     private var isSelecting = false
 
@@ -41,9 +42,10 @@ final class TranslationLensController {
         guard let selection else { return }
 
         lens?.close()
-        let session = LensSession(frame: selection.globalRect, language: language, capturer: capturer) {
-            [settings] in try await settings.makeProvider()
-        }
+        let session = LensSession(
+            frame: selection.globalRect, language: language, capturer: capturer,
+            engine: settings.engine ?? .claudeCode, memoryStore: memoryStore
+        ) { [settings] in try await settings.makeProvider() }
         session.onLanguageChange = { [weak self] language in self?.language = language }
         session.onClose = { [weak self, weak session] in
             if self?.lens === session {
@@ -61,7 +63,17 @@ final class TranslationLensController {
             lens.close()
             return
         }
-        lens.changeEngine()
+        lens.changeEngine(to: engine)
+    }
+
+    /// 앱을 끌 때 열린 렌즈의 번역 기억을 저장한다
+    func saveMemory() {
+        lens?.saveMemory()
+    }
+
+    /// 설정에서 번역 기억을 지우면 열린 렌즈의 기억도 비운다
+    func memoryDidClear() {
+        lens?.clearMemory()
     }
 }
 
@@ -88,7 +100,10 @@ final class LensSession {
     /// 선택된 번역 엔진을 만든다 (설정이 엔진별로 기억해 둔다)
     private let makeProvider: @MainActor () async throws -> any TranslationProvider
     private var tracker = ChangeTracker()
-    private var memory = TranslationMemory()
+    private var memory: TranslationMemory
+    /// 기억을 저장할 엔진 (엔진을 바꾸면 그 엔진의 기억으로 바꿔 끼운다)
+    private var memoryEngine: TranslationEngine
+    private let memoryStore: TranslationMemoryStore
     private var translator: RegionTranslator?
     /// 엔진 준비 (렌즈를 띄울 때 시작해 OCR과 함께 진행한다)
     private var translatorTask: Task<Void, Never>?
@@ -127,12 +142,16 @@ final class LensSession {
     private static let log = Logger(subsystem: "com.example.AITranslate", category: "pipeline")
 
     init(
-        frame: CGRect, language: TargetLanguage, capturer: ScreenCapturer,
+        frame: CGRect, language: TargetLanguage, capturer: ScreenCapturer, engine: TranslationEngine,
+        memoryStore: TranslationMemoryStore,
         makeProvider: @escaping @MainActor () async throws -> any TranslationProvider
     ) {
         self.frame = frame
         self.capturer = capturer
         self.makeProvider = makeProvider
+        self.memoryStore = memoryStore
+        memoryEngine = engine
+        memory = memoryStore.load(engine)
         let model = LensModel(language: language)
         self.model = model
         bodyPanel = LensPanel(
@@ -180,6 +199,7 @@ final class LensSession {
         loopTask?.cancel()
         translateTask?.cancel()
         translatorTask?.cancel()
+        saveMemory()
         if let scrollMonitor {
             NSEvent.removeMonitor(scrollMonitor)
         }
@@ -329,14 +349,16 @@ final class LensSession {
         }
     }
 
-    /// 엔진이 바뀌면 진행 중 요청을 멈추고, 기억한 번역을 비워 지금 보이는 문단을 새 엔진으로 다시 번역한다
-    func changeEngine() {
+    /// 엔진이 바뀌면 진행 중 요청을 멈추고, 지금 기억을 저장한 뒤 새 엔진의 기억으로 바꿔 지금 보이는 문단을 다시 번역한다
+    func changeEngine(to engine: TranslationEngine) {
         cancelTranslation()
         translatorTask?.cancel()
         translatorTask = nil
         engineGeneration += 1
         translator = nil
-        memory = TranslationMemory()
+        saveMemory()
+        memoryEngine = engine
+        memory = memoryStore.load(engine)
         refreshParagraphs()
         if !blocks.isEmpty {
             model.status = .translating
@@ -427,6 +449,21 @@ final class LensSession {
         }
         lastPartialRefresh = now
         refreshParagraphs()
+    }
+
+    func saveMemory() {
+        do {
+            try memoryStore.save(memory, for: memoryEngine)
+        } catch {
+            Self.log.error("번역 기억 저장 실패: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func clearMemory() {
+        cancelTranslation()
+        memory = TranslationMemory()
+        refreshParagraphs()
+        translateIfNeeded()
     }
 
     private func cancelTranslation() {
