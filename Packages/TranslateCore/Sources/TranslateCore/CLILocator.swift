@@ -9,6 +9,15 @@ public enum CLILocator {
         "/usr/local/bin/claude",
     ]
 
+    /// npm으로 설치하는 경우가 많아 Node 버전 관리자 위치도 본다
+    public static let codexKnownLocations = [
+        "~/.volta/bin/codex",
+        "/opt/homebrew/bin/codex",
+        "/usr/local/bin/codex",
+        "~/.local/bin/codex",
+        "~/.npm-global/bin/codex",
+    ]
+
     /// 사용자의 로그인 셸. 알 수 없으면 zsh.
     public static var loginShell: URL {
         guard let entry = getpwuid(getuid()), let shell = entry.pointee.pw_shell else {

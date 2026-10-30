@@ -15,7 +15,7 @@ public enum TranslationEngineError: Error, Equatable, Sendable {
     /// 엔진 에러 메시지를 안내 가능한 종류로 분류한다.
     static func classify(_ message: String) -> TranslationEngineError {
         let lowered = message.lowercased()
-        let loginHints = ["not logged in", "/login", "invalid api key", "authentication", "oauth token"]
+        let loginHints = ["not logged in", "/login", "codex login", "invalid api key", "authentication", "oauth token"]
         let limitHints = ["usage limit", "hit your limit", "limit reached", "rate limit", "rate_limit"]
         if loginHints.contains(where: { lowered.contains($0) }) {
             return .notLoggedIn

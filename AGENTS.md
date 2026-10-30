@@ -15,8 +15,7 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
 | 배포 대상 | 외부 사용자 배포 |
 | 배포 방식 | Developer ID 서명 + 공증, DMG 직접 배포, 업데이트는 Sparkle. Mac App Store는 쓰지 않는다 (외부 CLI를 실행해야 해서 App Sandbox 불가) |
 | 결과 표시 | 번역 렌즈: 계속 떠 있는 창이 원문을 덮고 그 자리에 번역을 보여준다. 원문은 버튼으로 잠깐 본다. 일회성 결과창은 없다 (2026-10-30 사용자 결정, 첫 사용 후 변경). 번역은 원문과 같은 위치에 원문의 바탕색·글자색으로 그리고, 나머지는 투명해 페이지가 그대로 보인다 (2026-10-30 사용자 요청: 반투명 → 원문 위치·흰 바탕 검토) |
-| 기본 번역 엔진 | Claude Code CLI (`claude -p`), 모델 `haiku` |
-| 보조 번역 엔진 | Codex CLI (`codex exec`) |
+| 번역 엔진 | 처음 실행 때와 설정에서 사용자가 고른다: Claude Code CLI(`claude -p`, haiku) / Codex CLI(`codex exec`) / 로컬 LLM(Hy-MT2 1.8B, MLX). 로컬 모델은 사용자가 버튼으로 받는다 (2026-10-30 사용자 결정) |
 | 쓰지 않는 엔진 | Apple 번역(Translation 프레임워크): 비교 결과 가장 빠르지만(0.2~0.8초) 맥락 오역이 많음 (2026-10-30 사용자 결정, `.agent/archive/TASK-012.md`) |
 | 최소 macOS | 15.0 |
 | Xcode 프로젝트 | XcodeGen(`project.yml`)으로 생성. `.xcodeproj`는 git에서 제외 |
@@ -67,6 +66,19 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
     크게 벗어난 화면(`ChangeTracker.movedAwayThreshold`, 단어 하나 변경은 제외), 이동·크기 조절 중에는 번역을 그리지 않는다.
     다시 인식하면 보이고, 화면이 그대로면 스크롤이 멈춘 뒤 보인다. 인식 중에 또 스크롤했으면 다음 화면을 기다린다
   - 번역: `TranslationMemory`로 (원문, 언어)별 번역을 기억해 새 문단만 보낸다. 요청은 동시에 하나만. 실패하면 다음 변화 때 재시도
+- 엔진 선택: `App/EngineSettings.swift`(선택값 UserDefaults `TranslationEngine`, CLI 설치 확인, 로컬 모델 받기·취소·지우기,
+  엔진별 번역 엔진을 만들어 기억), 화면 `App/SettingsView.swift`, 창 `App/SettingsWindowController.swift`(메뉴 "설정…" ⌘,)
+  - 엔진을 아직 고르지 않았으면(처음 실행) 같은 화면을 시작 안내로 띄우고, ⌘⇧1도 렌즈 대신 안내를 띄운다
+  - 엔진을 바꾸면 열린 렌즈가 진행 중 요청을 취소하고 기억한 번역을 비워 새 엔진으로 다시 번역한다
+  - 엔진의 `preferredBatchSize`만큼 나눠 보낸다 (로컬 1: 번역되는 대로 보임, CLI는 실행 비용이 커서 한 번에)
+- 로컬 모델: `TranslateCore/LocalModel.swift`(Hugging Face `mlx-community/Hy-MT2-1.8B-4bit`, 리비전·파일 크기·해시 고정),
+  `ModelStore`(`~/Library/Application Support/AITranslate/Models/<id>`), `ModelDownloader`(받는 중에는 `<id>.partial`,
+  파일마다 SHA-256/git 블롭 SHA-1 확인 후 옮김, 실패·취소 시 삭제). 자동으로 받지 않는다 (사용자가 "모델 받기")
+  - MLX 실행: `App/LocalTextGenerator.swift`. mlx-swift-lm(3.32.3 고정, `hunyuan_v1_dense` 지원 확인)의 MLXLLM으로 받은 폴더에서
+    바로 불러온다(다운로더 안 씀). 토크나이저는 swift-transformers를 프로토콜로 직접 연결(매크로·다운로더 패키지 안 씀).
+    프롬프트에 특수 토큰이 있으므로 `addSpecialTokens: false`. 샘플링은 모델 카드 권장값. 측정(M5): 불러오기 1.25초,
+    생성 초당 101~112토큰, 짧은 문구 0.14초·한 줄 0.35초·긴 문단 1.2초
+  - 빌드에 Metal 툴체인이 필요하다 (Xcode 26은 따로 받음: `xcodebuild -downloadComponent MetalToolchain`)
 - 흐름: `TranslationLensController`가 권한·고지 → 선택 → `LensSession` 생성(렌즈는 하나, 새로 만들면 바꿈).
   대상 언어는 `TargetLanguage`, 선택값은 UserDefaults `TargetLanguage`에 저장 (없으면 시스템 선호 언어)
 - 렌즈 화면은 화면 밖 렌더링(`NSHostingView.cacheDisplay`)으로 상태별 모양을 확인할 수 있다 (스크래치 하네스, 저장소 밖)
@@ -101,6 +113,7 @@ scripts/auto-fix-loop.sh   # 타입 검사·Lint·빌드·테스트 자동 검�
 ### 개발 명령어
 
 ```bash
+xcodebuild -downloadComponent MetalToolchain       # Xcode 26: MLX(로컬 LLM) 빌드에 필요 (한 번)
 xcodegen generate                                  # AITranslate.xcodeproj 생성 (project.yml 변경 후 항상)
 open AITranslate.xcodeproj                         # Xcode에서 열기
 ./scripts/setup-dev-signing.sh                     # 개발 서명 인증서 만들기 (한 번, 이미 있으면 건너뜀)
@@ -147,11 +160,18 @@ swift format format -i -r --configuration .swift-format App Packages/TranslateCo
     -C <빈 임시 폴더> -c model_reasoning_effort="low" \
     --output-schema <스키마 파일> -o <출력 파일> -
   ```
-  (`--output-schema` 조합은 미검증)
+  - 구현: `TranslateCore/CodexProvider.swift`. 검증(codex-cli 0.155.0, 2026-10-30): 스키마대로 출력, 지시문 그대로 번역,
+    줄바꿈 유지. 요청당 7~9초, 약 1만 4천 토큰(Codex 자체 지시문 포함)
+  - 시스템 프롬프트 옵션이 없어 표준 입력에 번역 지시 + JSON 세그먼트를 보낸다. 스키마·출력 파일은 작업 폴더 밖 임시 폴더에 둔다
+  - 오류 출력(stderr) 앞부분에는 입력(페이지 글)이 되풀이되므로 오류 분류에는 끝 600자만 쓴다
+  - 설치 위치는 npm·Volta 경로가 많다 (`CLILocator.codexKnownLocations`, 없으면 로그인 셸)
 
 ### 금지 및 필수 사항
 
-- 두 엔진 모두 요청마다 빈 임시 폴더를 작업 디렉터리로 쓴다 (프로젝트 설정, CLAUDE.md, 사용자 훅이 섞이는 것을 막는다).
+- 두 CLI 엔진 모두 요청마다 빈 임시 폴더를 작업 디렉터리로 쓴다 (프로젝트 설정, CLAUDE.md, 사용자 훅이 섞이는 것을 막는다).
+- 로컬 엔진(`TranslateCore/LocalTranslationProvider.swift`): 번역 전용 모델이라 문단마다 모델 카드 프롬프트로 따로 번역한다.
+  페이지 글에 모델 특수 토큰 문자열(`<｜hy_…｜>`)이 있으면 대화 형식을 바꿀 수 있으므로 전각 세로줄을 보통 세로줄로 바꿔
+  무력화한다. 생성 길이 상한을 둔다. 받은 모델 파일은 고정 해시와 맞을 때만 쓴다
 - 도구나 샌드박스 제한을 완화하는 변경은 금지한다. 예: `--tools`에 도구 허용, `--dangerously-*` 플래그, `danger-full-access`.
 - 모든 엔진 호출에 시간 제한을 두고, 새 요청이 오면 이전 프로세스를 종료한다.
   외부 프로세스는 `ProcessExecutor`로만 실행한다 (시간 제한·Task 취소 시 종료, 큰 입출력 교착 방지, SIGPIPE 방지).
@@ -163,8 +183,9 @@ swift format format -i -r --configuration .swift-format App Packages/TranslateCo
 ### 개인정보
 
 - 캡처 이미지, 인식한 텍스트, 번역 결과를 로그나 크래시 리포트에 남기지 않는다.
-- 첫 실행 시 선택 영역의 내용이 외부 번역 엔진으로 전송된다는 사실을 알린다. 구현: `App/DataTransmissionNotice.swift`
-  (첫 번역 전 1회, 동의 여부는 UserDefaults `DataTransmissionNoticeAccepted`)
+- 외부 엔진으로 처음 번역하기 전에 선택 영역의 내용이 어디로 전송되는지 알린다. 구현: `App/DataTransmissionNotice.swift`
+  (엔진별 1회. 동의 여부는 UserDefaults `DataTransmissionNoticeAccepted`(Claude)·`DataTransmissionNoticeAccepted.codex`.
+  로컬 엔진은 전송하지 않으므로 묻지 않는다)
 
 ## 5. 작업 절차
 
