@@ -91,6 +91,11 @@ final class LensSession {
     private var tracker = ChangeTracker()
     private var memory = TranslationMemory()
     private var translator: RegionTranslator?
+    /// 엔진 준비 (렌즈를 띄울 때 시작해 OCR과 함께 진행한다)
+    private var translatorTask: Task<Void, Never>?
+    /// 엔진 변경 번호. 엔진이 바뀐 뒤 늦게 끝난 준비를 버린다
+    private var engineGeneration = 0
+    private let recognizer = TextRecognizer()
     private var blocks: [TextBlock] = []
     /// `blocks`와 같은 순서의 원문 색
     private var colors: [BlockColors] = []
@@ -144,6 +149,7 @@ final class LensSession {
 
     func show() {
         changeStartedAt = .now
+        prepareTranslator()
         layoutPanels()
         for panel in [bodyPanel, toolbarPanel, handlePanel] {
             panel.orderFrontRegardless()
@@ -164,6 +170,7 @@ final class LensSession {
     func close() {
         loopTask?.cancel()
         translateTask?.cancel()
+        translatorTask?.cancel()
         if let scrollMonitor {
             NSEvent.removeMonitor(scrollMonitor)
         }
@@ -200,10 +207,9 @@ final class LensSession {
             if translateTask == nil {
                 model.status = .recognizing
             }
+            // 엔진 준비를 기다리지 않고 바로 인식한다 (준비는 `prepareTranslator`가 따로 한다)
             let settled = ContinuousClock.now
-            let translator = try await locateTranslator()
-            let prepared = ContinuousClock.now
-            let recognized = try await translator.recognize(image)
+            let recognized = TextBlockGrouper.group(try await recognizer.recognize(image))
             let ocred = ContinuousClock.now
             let sampled = await Task.detached {
                 recognized.map { BlockColors.sample(image, in: $0.boundingBox) ?? .plain }
@@ -220,13 +226,12 @@ final class LensSession {
             abandonTranslationIfPassed()
             let missing = memory.missing(in: blocks, for: model.language).count
             let timings = (
-                capture: Self.ms(captured - started), prepare: Self.ms(prepared - settled),
-                ocr: Self.ms(ocred - prepared),
+                capture: Self.ms(captured - started), ocr: Self.ms(ocred - settled),
                 colors: Self.ms(colored - ocred), layout: Self.ms(.now - colored), sinceChange: sinceChange()
             )
             Self.log.info(
                 """
-                인식: 캡처 \(timings.capture, privacy: .public)ms · 엔진 준비 \(timings.prepare, privacy: .public)ms · \
+                인식: 캡처 \(timings.capture, privacy: .public)ms · \
                 OCR \(timings.ocr, privacy: .public)ms · 색 \(timings.colors, privacy: .public)ms · \
                 배치 \(timings.layout, privacy: .public)ms · 문단 \(recognized.count, privacy: .public)개 \
                 (번역 필요 \(missing, privacy: .public)개) · 변화 후 \(timings.sinceChange, privacy: .public)ms
@@ -235,6 +240,8 @@ final class LensSession {
             if !scrolled(since: started) {
                 model.isOutdated = false
             }
+            // 엔진 준비가 실패했으면 화면이 바뀔 때마다 다시 준비한다
+            prepareTranslator()
             translateIfNeeded()
         } catch is CancellationError {
             return
@@ -281,31 +288,42 @@ final class LensSession {
             scale: screen.backingScaleFactor, globalRect: clamped)
     }
 
-    private func locateTranslator() async throws -> RegionTranslator {
-        if let translator {
-            return translator
+    /// 번역 엔진을 준비한다. 준비되면 기다리던 문단을 번역한다. 이미 있거나 준비 중이면 아무것도 하지 않는다
+    private func prepareTranslator() {
+        guard translator == nil, translatorTask == nil else { return }
+        let generation = engineGeneration
+        let started = ContinuousClock.now
+        translatorTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let provider = try await makeProvider()
+                guard engineGeneration == generation else { return }
+                translator = RegionTranslator(recognizer: recognizer, provider: provider)
+                translatorTask = nil
+                let engine = String(describing: type(of: provider))
+                Self.log.info("엔진 준비: \(engine, privacy: .public) \(Self.ms(.now - started), privacy: .public)ms")
+                translateIfNeeded()
+            } catch {
+                guard engineGeneration == generation else { return }
+                translatorTask = nil
+                model.status = .failed(Self.message(for: error))
+            }
         }
-        let located = RegionTranslator(provider: try await makeProvider())
-        translator = located
-        return located
     }
 
     /// 엔진이 바뀌면 진행 중 요청을 멈추고, 기억한 번역을 비워 지금 보이는 문단을 새 엔진으로 다시 번역한다
     func changeEngine() {
         cancelTranslation()
+        translatorTask?.cancel()
+        translatorTask = nil
+        engineGeneration += 1
         translator = nil
         memory = TranslationMemory()
         refreshParagraphs()
-        guard !blocks.isEmpty else { return }
-        model.status = .translating
-        Task { [weak self] in
-            do {
-                _ = try await self?.locateTranslator()
-                self?.translateIfNeeded()
-            } catch {
-                self?.model.status = .failed(Self.message(for: error))
-            }
+        if !blocks.isEmpty {
+            model.status = .translating
         }
+        prepareTranslator()
     }
 
     // MARK: 번역

@@ -16,7 +16,11 @@ final class LocalTextGenerator: TextGenerating, Sendable {
     }
 
     static func load(directory: URL) async throws -> any TextGenerating {
-        LocalTextGenerator(container: try await loadModelContainer(from: directory, using: TokenizerLoader()))
+        let generator = LocalTextGenerator(
+            container: try await loadModelContainer(from: directory, using: TokenizerLoader()))
+        // 첫 생성은 GPU 커널 준비로 4초 넘게 걸린다 (측정, TASK-019). 불러올 때 짧게 한 번 돌려 둔다
+        _ = try await generator.generate(prompt: HyMTPrompt.prompt(for: "Hello", target: "Korean"), maxTokens: 4)
+        return generator
     }
 
     func generate(prompt: String, maxTokens: Int) async throws -> String {

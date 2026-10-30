@@ -17,9 +17,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.translateRegion()
         }
         settings.onEngineChange = { [weak self] in self?.lens.engineDidChange() }
-        // 처음 실행: 번역 엔진부터 고른다
+        // 처음 실행: 번역 엔진부터 고른다. 이미 골랐으면 렌즈를 열기 전에 엔진을 미리 준비한다
         if settings.engine == nil {
             settingsWindow.show(onboarding: true)
+        } else {
+            settings.prepare()
         }
     }
 

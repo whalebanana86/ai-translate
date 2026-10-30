@@ -79,6 +79,9 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
     프롬프트에 특수 토큰이 있으므로 `addSpecialTokens: false`. 샘플링은 모델 카드 권장값. 측정(M5): 불러오기 1.25초,
     생성 초당 101~112토큰, 짧은 문구 0.14초·한 줄 0.35초·긴 문단 1.2초
   - 빌드에 Metal 툴체인이 필요하다 (Xcode 26은 따로 받음: `xcodebuild -downloadComponent MetalToolchain`)
+  - 미리 준비: 앱 시작·엔진 변경·모델 받기 완료 때 `EngineSettings.prepare()`로 엔진을 만들어 둔다(같은 엔진 준비는 하나만).
+    로컬 모델은 불러온 뒤 짧은 예열 생성으로 GPU 커널을 준비한다(첫 생성 4.3초 측정). 로컬 엔진을 고른 동안은 모델(약 1.2GB)을
+    메모리에 둔다. 렌즈는 엔진 준비를 기다리지 않고 OCR부터 하고, 준비가 끝나면 번역을 시작한다
 - 흐름: `TranslationLensController`가 권한·고지 → 선택 → `LensSession` 생성(렌즈는 하나, 새로 만들면 바꿈).
   대상 언어는 `TargetLanguage`, 선택값은 UserDefaults `TargetLanguage`에 저장 (없으면 시스템 선호 언어)
 - 렌즈 화면은 화면 밖 렌더링(`NSHostingView.cacheDisplay`)으로 상태별 모양을 확인할 수 있다 (스크래치 하네스, 저장소 밖)
