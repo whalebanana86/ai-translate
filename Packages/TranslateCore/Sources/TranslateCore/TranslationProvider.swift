@@ -5,8 +5,11 @@ public protocol TranslationProvider: Sendable {
     func translate(_ request: TranslationRequest) async throws -> TranslationResult
     /// 한 번에 보낼 문단 수. nil이면 모두 한 번에 (CLI 엔진은 실행 비용이 커서 묶어 보낸다)
     var preferredBatchSize: Int? { get }
+    /// 새 화면(보이는 번역이 없을 때) 첫 요청의 문단 수. 위쪽 문단을 먼저 보여준다. nil이면 나누지 않는다
+    var firstBatchSize: Int? { get }
 }
 
 extension TranslationProvider {
     public var preferredBatchSize: Int? { nil }
+    public var firstBatchSize: Int? { nil }
 }

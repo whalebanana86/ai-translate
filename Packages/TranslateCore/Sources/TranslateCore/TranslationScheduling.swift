@@ -7,4 +7,18 @@ public enum TranslationScheduling {
         let remaining = inFlight.filter(visible.contains).count
         return remaining * 2 < inFlight.count
     }
+
+    /// 이번에 보낼 문단. 엔진이 문단 수를 정했으면(로컬 1) 그만큼, 화면에 보이는 번역이 없으면(새 화면) 첫 묶음 크기만큼,
+    /// 그 밖에는 남은 문단을 모두 보낸다
+    public static func batch<Element>(
+        _ missing: [Element], hasVisibleTranslation: Bool, preferredBatchSize: Int?, firstBatchSize: Int?
+    ) -> [Element] {
+        if let preferredBatchSize {
+            return Array(missing.prefix(preferredBatchSize))
+        }
+        if !hasVisibleTranslation, let firstBatchSize {
+            return Array(missing.prefix(firstBatchSize))
+        }
+        return missing
+    }
 }

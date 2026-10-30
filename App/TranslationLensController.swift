@@ -352,7 +352,11 @@ final class LensSession {
             }
             return
         }
-        let batch = translator.provider.preferredBatchSize.map { Array(missing.prefix($0)) } ?? missing
+        let hasVisibleTranslation = blocks.contains { memory.translation(of: $0.text, in: language) != nil }
+        let batch = TranslationScheduling.batch(
+            missing, hasVisibleTranslation: hasVisibleTranslation,
+            preferredBatchSize: translator.provider.preferredBatchSize,
+            firstBatchSize: translator.provider.firstBatchSize)
         model.status = .translating
         let requested = ContinuousClock.now
         translateGeneration += 1

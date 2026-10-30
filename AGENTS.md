@@ -73,7 +73,9 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
   엔진별 번역 엔진을 만들어 기억), 화면 `App/SettingsView.swift`, 창 `App/SettingsWindowController.swift`(메뉴 "설정…" ⌘,)
   - 엔진을 아직 고르지 않았으면(처음 실행) 같은 화면을 시작 안내로 띄우고, ⌘⇧1도 렌즈 대신 안내를 띄운다
   - 엔진을 바꾸면 열린 렌즈가 진행 중 요청을 취소하고 기억한 번역을 비워 새 엔진으로 다시 번역한다
-  - 엔진의 `preferredBatchSize`만큼 나눠 보낸다 (로컬 1: 번역되는 대로 보임, CLI는 실행 비용이 커서 한 번에)
+  - 묶음은 `TranslationScheduling.batch`: 엔진의 `preferredBatchSize`(로컬 1: 번역되는 대로 보임), 새 화면이면
+    `firstBatchSize`(Claude 3: 위쪽 문단 먼저, Codex는 요청 고정 비용이 커서 나누지 않음), 그 밖에는 남은 문단을 한 번에
+  - 진행 중 요청의 문단이 절반 넘게 화면에서 지나가면 요청을 버리고 지금 화면부터 번역한다(`TranslationScheduling.shouldAbandon`)
 - 로컬 모델: `TranslateCore/LocalModel.swift`(Hugging Face `mlx-community/Hy-MT2-1.8B-4bit`, 리비전·파일 크기·해시 고정),
   `ModelStore`(`~/Library/Application Support/AITranslate/Models/<id>`), `ModelDownloader`(받는 중에는 `<id>.partial`,
   파일마다 SHA-256/git 블롭 SHA-1 확인 후 옮김, 실패·취소 시 삭제). 자동으로 받지 않는다 (사용자가 "모델 받기")

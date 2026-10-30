@@ -12,6 +12,10 @@ public struct ClaudeCodeProvider: TranslationProvider {
     public var model: String
     public var timeout: Duration
 
+    /// 요청마다 약 3초 고정 비용이 있지만, 8~28문단을 한 번에 보내면 7~21초 뒤에야 보인다 (TASK-019).
+    /// 새 화면은 위쪽 3문단을 먼저 보내 첫 번역을 빨리 보여준다
+    public var firstBatchSize: Int? { 3 }
+
     public init(executable: URL, model: String = defaultModel, timeout: Duration = defaultTimeout) {
         self.executable = executable
         self.model = model
