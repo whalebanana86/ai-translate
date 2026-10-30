@@ -99,6 +99,8 @@ final class LensSession {
     /// `blocks`와 같은 순서의 원문 색
     private var colors: [BlockColors] = []
     private var scale: CGFloat = 2
+    /// 마지막으로 인식한 캡처 이미지 높이(픽셀). 렌즈 끝에 걸친 문단을 가린다
+    private var imageHeight: CGFloat = 0
     private var loopTask: Task<Void, Never>?
     private var translateTask: Task<Void, Never>?
     /// 진행 중인 요청의 원문. 화면이 지나가면 요청을 버리는 데 쓴다
@@ -230,6 +232,7 @@ final class LensSession {
             blocks = recognized
             colors = sampled
             scale = selection.scale
+            imageHeight = CGFloat(image.height)
             model.hasRecognized = true
             refreshParagraphs()
             abandonTranslationIfPassed()
@@ -348,7 +351,10 @@ final class LensSession {
     private func translateIfNeeded() {
         guard translateTask == nil, let translator else { return }
         let language = model.language
-        let missing = memory.missing(in: blocks, for: language)
+        let height = imageHeight
+        let missing = TranslationScheduling.prioritized(memory.missing(in: blocks, for: language)) {
+            LensGeometry.isCutOff($0, imageHeight: height)
+        }
         guard !missing.isEmpty else {
             model.status = .watching
             if changeStartedAt != nil, !model.isOutdated {

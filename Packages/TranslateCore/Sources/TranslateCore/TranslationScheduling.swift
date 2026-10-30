@@ -21,4 +21,9 @@ public enum TranslationScheduling {
         }
         return missing
     }
+
+    /// 온전히 보이는 문단을 먼저, 렌즈 끝에 걸친 문단을 뒤로 보낸다 (각각 원래 순서 유지)
+    public static func prioritized<Element>(_ missing: [Element], isCutOff: (Element) -> Bool) -> [Element] {
+        missing.filter { !isCutOff($0) } + missing.filter(isCutOff)
+    }
 }

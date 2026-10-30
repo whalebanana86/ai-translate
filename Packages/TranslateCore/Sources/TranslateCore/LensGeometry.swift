@@ -57,6 +57,14 @@ public enum LensGeometry {
         }
     }
 
+    /// 캡처 위·아래 끝에서 이만큼(픽셀) 안에 닿은 문단은 잘린 것으로 본다
+    public static let edgeMargin: CGFloat = 6
+
+    /// 렌즈 위·아래 끝에 걸쳐 일부만 보이는 문단인지. 스크롤할 때마다 보이는 글이 바뀌므로 번역을 뒤로 미룬다
+    public static func isCutOff(_ block: TextBlock, imageHeight: CGFloat) -> Bool {
+        block.boundingBox.minY <= edgeMargin || block.boundingBox.maxY >= imageHeight - edgeMargin
+    }
+
     /// 원래 글자 크기에 맞춘 번역 글자 크기. OCR 줄 높이는 글자 크기와 비슷하다.
     /// 아래로 내려가는 글자(g, y 등)가 없는 줄은 낮게 잡히므로 문단에서 가장 높은 줄을 기준으로 한다.
     public static func fontSize(of block: TextBlock, scale: CGFloat) -> CGFloat {

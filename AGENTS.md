@@ -75,6 +75,7 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
   - 엔진을 바꾸면 열린 렌즈가 진행 중 요청을 취소하고 기억한 번역을 비워 새 엔진으로 다시 번역한다
   - 묶음은 `TranslationScheduling.batch`: 엔진의 `preferredBatchSize`(로컬 1: 번역되는 대로 보임), 새 화면이면
     `firstBatchSize`(Claude 3: 위쪽 문단 먼저, Codex는 요청 고정 비용이 커서 나누지 않음), 그 밖에는 남은 문단을 한 번에
+  - 렌즈 위·아래 끝에 걸친(잘린) 문단은 스크롤마다 글이 바뀌므로 맨 뒤에 번역한다(`LensGeometry.isCutOff`)
   - 진행 중 요청의 문단이 절반 넘게 화면에서 지나가면 요청을 버리고 지금 화면부터 번역한다(`TranslationScheduling.shouldAbandon`)
 - 로컬 모델: `TranslateCore/LocalModel.swift`(Hugging Face `mlx-community/Hy-MT2-1.8B-4bit`, 리비전·파일 크기·해시 고정),
   `ModelStore`(`~/Library/Application Support/AITranslate/Models/<id>`), `ModelDownloader`(받는 중에는 `<id>.partial`,

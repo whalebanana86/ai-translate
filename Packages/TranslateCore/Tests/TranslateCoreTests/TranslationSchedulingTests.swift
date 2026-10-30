@@ -47,4 +47,10 @@ struct TranslationSchedulingTests {
         #expect(ClaudeCodeProvider(executable: URL(fileURLWithPath: "/bin/echo")).firstBatchSize == 3)
         #expect(CodexProvider(executable: URL(fileURLWithPath: "/bin/echo")).firstBatchSize == nil)
     }
+
+    @Test func translatesWholeParagraphsBeforeCutOffOnes() {
+        let order = TranslationScheduling.prioritized(["top-cut", "a", "b", "bottom-cut"]) { $0.hasSuffix("-cut") }
+
+        #expect(order == ["a", "b", "top-cut", "bottom-cut"])
+    }
 }
