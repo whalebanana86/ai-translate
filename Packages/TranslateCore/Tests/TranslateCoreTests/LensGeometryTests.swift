@@ -119,4 +119,11 @@ struct LensGeometryTests {
             LensGeometry.resized(lens, by: CGSize(width: -1000, height: 1000))
                 == CGRect(x: 100, y: 720, width: 160, height: 80))
     }
+
+    @Test func detectsParagraphsCutAtLensEdges() {
+        // 이미지 높이 600px, 줄 높이 30px
+        #expect(LensGeometry.isCutOff(block(x: 0, y: 3), imageHeight: 600))
+        #expect(LensGeometry.isCutOff(block(x: 0, y: 566), imageHeight: 600))
+        #expect(!LensGeometry.isCutOff(block(x: 0, y: 100, lines: 2), imageHeight: 600))
+    }
 }

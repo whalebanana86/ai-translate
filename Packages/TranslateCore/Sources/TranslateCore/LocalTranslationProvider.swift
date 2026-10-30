@@ -2,7 +2,15 @@ import Foundation
 
 /// 기기에서 글을 생성하는 모델 (앱에서는 MLX). `prompt`는 모델 형식(특수 토큰 포함)에 맞춘 전체 문자열이다.
 public protocol TextGenerating: Sendable {
-    func generate(prompt: String, maxTokens: Int) async throws -> String
+    /// `onPartial`에는 지금까지 생성한 글 전체를 넘긴다
+    func generate(prompt: String, maxTokens: Int, onPartial: @escaping @Sendable (String) -> Void) async throws
+        -> String
+}
+
+extension TextGenerating {
+    public func generate(prompt: String, maxTokens: Int) async throws -> String {
+        try await generate(prompt: prompt, maxTokens: maxTokens) { _ in }
+    }
 }
 
 /// 번역 전용 로컬 모델(Hy-MT2)로 문단을 하나씩 번역한다. 번역 전용 모델은 글 하나를 번역하도록 학습되어
@@ -18,12 +26,21 @@ public struct LocalTranslationProvider: TranslationProvider {
     public var preferredBatchSize: Int? { 1 }
 
     public func translate(_ request: TranslationRequest) async throws -> TranslationResult {
+        try await translate(request) { _, _ in }
+    }
+
+    public func translate(_ request: TranslationRequest, onPartial: @escaping @Sendable (Int, String) -> Void)
+        async throws -> TranslationResult
+    {
         var segments: [String] = []
-        for segment in request.segments {
+        for (index, segment) in request.segments.enumerated() {
             try Task.checkCancellation()
             let output = try await generator.generate(
                 prompt: HyMTPrompt.prompt(for: segment, target: request.target),
-                maxTokens: HyMTPrompt.maxTokens(for: segment))
+                maxTokens: HyMTPrompt.maxTokens(for: segment)
+            ) { partial in
+                onPartial(index, HyMTPrompt.clean(partial))
+            }
             segments.append(HyMTPrompt.clean(output))
         }
         return TranslationResult(segments: segments)
@@ -64,11 +81,14 @@ public enum HyMTPrompt {
 
 public enum LocalEngineError: Error, Equatable, LocalizedError {
     case modelNotInstalled
+    case unsupportedMac
 
     public var errorDescription: String? {
         switch self {
         case .modelNotInstalled:
             "번역 모델을 아직 받지 않았습니다. 설정(⌘,)의 로컬 LLM에서 '모델 받기'를 누르세요."
+        case .unsupportedMac:
+            "로컬 LLM은 Apple Silicon(M1 이상) Mac에서만 쓸 수 있습니다. 설정(⌘,)에서 다른 엔진을 고르세요."
         }
     }
 }

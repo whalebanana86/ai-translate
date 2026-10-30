@@ -22,6 +22,15 @@ final class EngineSettings {
 
     private static let engineKey = "TranslationEngine"
 
+    /// 로컬 LLM(MLX)은 Apple Silicon에서만 돈다. Intel용 빌드(Rosetta 포함)에서는 고를 수 없다
+    static var isAppleSilicon: Bool {
+        #if arch(arm64)
+            true
+        #else
+            false
+        #endif
+    }
+
     let localModel = LocalModel.hyMT2
     private let store = ModelStore.standard
 
@@ -32,18 +41,24 @@ final class EngineSettings {
             UserDefaults.standard.set(engine?.rawValue, forKey: Self.engineKey)
             cachedProvider = nil
             onEngineChange?()
+            prepare()
         }
     }
     private(set) var cliStatus: [TranslationEngine: CLIStatus] = [:]
     private(set) var modelState: ModelState
 
     @ObservationIgnored var onEngineChange: (() -> Void)?
+    @ObservationIgnored var onMemoryClear: (() -> Void)?
     @ObservationIgnored private var downloadTask: Task<Void, Never>?
     /// 엔진을 찾거나 모델을 불러오는 데 시간이 걸리므로 렌즈를 새로 만들어도 다시 쓴다
     @ObservationIgnored private var cachedProvider: (engine: TranslationEngine, provider: any TranslationProvider)?
+    @ObservationIgnored private var preparing:
+        (engine: TranslationEngine, task: Task<any TranslationProvider, any Error>)?
 
     init() {
+        // 이 Mac에서 쓸 수 없는 엔진이 저장돼 있으면(다른 Mac에서 옮겨 온 설정 등) 다시 고르게 한다
         engine = UserDefaults.standard.string(forKey: Self.engineKey).flatMap(TranslationEngine.init(rawValue:))
+            .flatMap { $0.isSupported(onAppleSilicon: Self.isAppleSilicon) ? $0 : nil }
         modelState = ModelStore.standard.isInstalled(LocalModel.hyMT2) ? .installed : .notInstalled
     }
 
@@ -75,6 +90,10 @@ final class EngineSettings {
             do {
                 try await downloader.download(model) { reporter.report($0.fraction) }
                 modelState = .installed
+                cachedProvider = nil
+                if engine == .local {
+                    prepare()
+                }
             } catch is CancellationError {
                 modelState = .notInstalled
             } catch {
@@ -82,7 +101,6 @@ final class EngineSettings {
                     message: (error as? any LocalizedError)?.errorDescription ?? error.localizedDescription)
             }
             downloadTask = nil
-            cachedProvider = nil
         }
     }
 
@@ -97,29 +115,60 @@ final class EngineSettings {
         cachedProvider = nil
     }
 
+    // MARK: 번역 기억
+
+    /// 디스크의 번역 기억(모든 엔진)과 열린 렌즈의 기억을 지운다
+    func clearTranslationMemory() {
+        try? TranslationMemoryStore.standard.removeAll()
+        onMemoryClear?()
+    }
+
     // MARK: 렌즈가 쓰는 번역 엔진
+
+    /// 선택된 엔진을 미리 만들어 둔다 (로컬 모델 불러오기·예열 1~6초, CLI 찾기). 실패는 렌즈가 쓸 때 다시 보인다
+    func prepare() {
+        guard engine != nil else { return }
+        Task { _ = try? await makeProvider() }
+    }
 
     func makeProvider() async throws -> any TranslationProvider {
         let engine = engine ?? .claudeCode
         if let cachedProvider, cachedProvider.engine == engine {
             return cachedProvider.provider
         }
-        let provider: any TranslationProvider
-        switch engine {
-        case .claudeCode:
-            provider = try await ClaudeCodeProvider.locate()
-        case .codex:
-            provider = try await CodexProvider.locate()
-        case .local:
-            guard store.isInstalled(localModel) else { throw LocalEngineError.modelNotInstalled }
-            provider = LocalTranslationProvider(
-                generator: try await LocalTextGenerator.load(directory: store.directory(for: localModel)))
+        // 미리 준비하는 중이면 같은 준비를 기다린다 (모델을 두 번 불러오지 않게)
+        if let preparing, preparing.engine == engine {
+            return try await preparing.task.value
         }
-        // 찾는 사이에 엔진이 바뀌었으면 기억하지 않는다
+        let task = Task { try await Self.provider(for: engine, model: localModel, store: store) }
+        preparing = (engine, task)
+        defer {
+            if preparing?.engine == engine {
+                preparing = nil
+            }
+        }
+        let provider = try await task.value
+        // 준비하는 사이에 엔진이 바뀌었으면 기억하지 않는다
         if engine == (self.engine ?? .claudeCode) {
             cachedProvider = (engine, provider)
         }
         return provider
+    }
+
+    private static func provider(for engine: TranslationEngine, model: LocalModel, store: ModelStore) async throws
+        -> any TranslationProvider
+    {
+        switch engine {
+        case .claudeCode:
+            return try await ClaudeCodeProvider.locate()
+        case .codex:
+            return try await CodexProvider.locate()
+        case .local:
+            guard isAppleSilicon else { throw LocalEngineError.unsupportedMac }
+            guard store.isInstalled(model) else { throw LocalEngineError.modelNotInstalled }
+            return LocalTranslationProvider(
+                generator: try await LocalTextGenerator.load(directory: store.directory(for: model)))
+        }
     }
 }
 

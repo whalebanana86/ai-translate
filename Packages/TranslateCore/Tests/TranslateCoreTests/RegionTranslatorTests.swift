@@ -1,4 +1,5 @@
 import CoreGraphics
+import Synchronization
 import Testing
 
 @testable import TranslateCore
@@ -16,6 +17,22 @@ private actor RecordingProvider: TranslationProvider {
         requests.append(request)
         guard let translations else { throw TranslationEngineError.notLoggedIn }
         return TranslationResult(segments: translations)
+    }
+}
+
+/// 문단마다 중간 번역을 알리는 가짜 엔진 (로컬 엔진처럼)
+private struct StreamingProvider: TranslationProvider {
+    func translate(_ request: TranslationRequest) async throws -> TranslationResult {
+        TranslationResult(segments: request.segments.map { "번역:" + $0 })
+    }
+
+    func translate(_ request: TranslationRequest, onPartial: @escaping @Sendable (Int, String) -> Void)
+        async throws -> TranslationResult
+    {
+        for (index, segment) in request.segments.enumerated() {
+            onPartial(index, "번역:" + segment.prefix(3))
+        }
+        return try await translate(request)
     }
 }
 
@@ -101,5 +118,21 @@ struct RegionTranslatorTests {
         let recognized = try await translator.recognize(image)
 
         #expect(recognized.map(\.text) == ["Start free and upgrade when your team grows. Cancel anytime."])
+    }
+
+    @Test func mapsPartialTranslationsToTranslatableBlocks() async throws {
+        // 번역하지 않는 문단("$19")이 사이에 있어도 중간 번역이 맞는 원문 문단으로 간다
+        let blocks = TextBlockGrouper.group([
+            RecognizedLine(text: "$19", confidence: 1, boundingBox: CGRect(x: 0, y: 0, width: 60, height: 20)),
+            RecognizedLine(
+                text: "Start free.", confidence: 1, boundingBox: CGRect(x: 0, y: 80, width: 400, height: 20)),
+        ])
+        let partials = Mutex<[String]>([])
+
+        _ = try await RegionTranslator(provider: StreamingProvider()).translate(blocks, to: .korean) { block, text in
+            partials.withLock { $0.append(block.text + "→" + text) }
+        }
+
+        #expect(partials.withLock { $0 } == ["Start free.→번역:Sta"])
     }
 }

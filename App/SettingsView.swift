@@ -22,6 +22,9 @@ struct SettingsView: View {
             ForEach(TranslationEngine.allCases) { engine in
                 EngineCard(settings: settings, engine: engine)
             }
+            if !isOnboarding {
+                MemorySection(settings: settings)
+            }
             HStack {
                 Text("⌘⇧1을 누르고 영역을 드래그하면 번역 렌즈가 생깁니다.")
                     .font(.callout)
@@ -46,6 +49,7 @@ private struct EngineCard: View {
     let engine: TranslationEngine
 
     private var isSelected: Bool { settings.engine == engine }
+    private var isSupported: Bool { engine.isSupported(onAppleSilicon: EngineSettings.isAppleSilicon) }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -58,7 +62,11 @@ private struct EngineCard: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                if engine == .local {
+                if !isSupported {
+                    Label("Apple Silicon(M1 이상) Mac에서만 쓸 수 있습니다.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if engine == .local {
                     LocalModelStatus(settings: settings)
                 } else {
                     CLIStatusLine(status: settings.cliStatus[engine], name: engine.executableName ?? "")
@@ -75,8 +83,13 @@ private struct EngineCard: View {
             RoundedRectangle(cornerRadius: 10)
                 .strokeBorder(isSelected ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: 1)
         )
+        .opacity(isSupported ? 1 : 0.55)
         .contentShape(Rectangle())
-        .onTapGesture { settings.engine = engine }
+        .onTapGesture {
+            if isSupported {
+                settings.engine = engine
+            }
+        }
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
@@ -142,5 +155,33 @@ private struct LocalModelStatus: View {
             }
         }
         .controlSize(.small)
+    }
+}
+
+/// 번역 기억: 같은 글은 다시 번역하지 않도록 이 Mac에 저장한다. 원문이 남으므로 지울 수 있게 한다
+private struct MemorySection: View {
+    let settings: EngineSettings
+    @State private var cleared = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("번역 기억").font(.headline)
+            Text("번역한 글(원문과 번역)을 이 Mac에만 저장해, 같은 글을 다시 볼 때 바로 보여줍니다. 엔진마다 최근 500개까지.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button("번역 기억 지우기") {
+                    settings.clearTranslationMemory()
+                    cleared = true
+                }
+                if cleared {
+                    Label("지웠습니다", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+            }
+            .controlSize(.small)
+        }
     }
 }

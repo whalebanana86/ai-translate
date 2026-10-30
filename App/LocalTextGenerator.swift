@@ -16,10 +16,16 @@ final class LocalTextGenerator: TextGenerating, Sendable {
     }
 
     static func load(directory: URL) async throws -> any TextGenerating {
-        LocalTextGenerator(container: try await loadModelContainer(from: directory, using: TokenizerLoader()))
+        let generator = LocalTextGenerator(
+            container: try await loadModelContainer(from: directory, using: TokenizerLoader()))
+        // 첫 생성은 GPU 커널 준비로 4초 넘게 걸린다 (측정, TASK-019). 불러올 때 짧게 한 번 돌려 둔다
+        _ = try await generator.generate(prompt: HyMTPrompt.prompt(for: "Hello", target: "Korean"), maxTokens: 4)
+        return generator
     }
 
-    func generate(prompt: String, maxTokens: Int) async throws -> String {
+    func generate(prompt: String, maxTokens: Int, onPartial: @escaping @Sendable (String) -> Void) async throws
+        -> String
+    {
         // 프롬프트에 채팅 형식의 특수 토큰이 이미 들어 있으므로 토크나이저가 더 붙이지 않게 한다
         let tokens = await container.perform { context in
             context.tokenizer.encode(text: prompt, addSpecialTokens: false)
@@ -33,6 +39,7 @@ final class LocalTextGenerator: TextGenerating, Sendable {
             try Task.checkCancellation()
             if let chunk = event.chunk {
                 output += chunk
+                onPartial(output)
             }
         }
         return output

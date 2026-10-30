@@ -30,12 +30,24 @@ public struct RegionTranslator: Sendable {
     /// 문단을 번역한다. 번역할 글자가 없는 문단(숫자·기호·버튼)은 엔진에 보내지 않고 원문을 그대로 쓴다.
     /// 번역할 문단이 하나도 없으면 엔진을 부르지 않는다.
     public func translate(_ blocks: [TextBlock], to language: TargetLanguage) async throws -> [TranslatedBlock] {
+        try await translate(blocks, to: language) { _, _ in }
+    }
+
+    /// 생성되는 대로 보여줄 수 있는 엔진이면 (원문 문단, 지금까지 나온 번역)을 알린다
+    public func translate(
+        _ blocks: [TextBlock], to language: TargetLanguage,
+        onPartial: @escaping @Sendable (TextBlock, String) -> Void
+    ) async throws -> [TranslatedBlock] {
         let translatable = blocks.filter(\.isTranslatable)
         guard !translatable.isEmpty else {
             return blocks.map { TranslatedBlock(source: $0, translation: $0.text) }
         }
         let request = TranslationRequest(target: language.promptName, segments: translatable.map(\.text))
-        let result = try TranslationPayload.validate(try await provider.translate(request), for: request)
+        let response = try await provider.translate(request) { index, partial in
+            guard translatable.indices.contains(index) else { return }
+            onPartial(translatable[index], partial)
+        }
+        let result = try TranslationPayload.validate(response, for: request)
         var translations = result.segments.makeIterator()
         return blocks.map { block in
             let translation = block.isTranslatable ? translations.next() : nil

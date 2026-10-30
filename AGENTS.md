@@ -18,6 +18,7 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
 | 번역 엔진 | 처음 실행 때와 설정에서 사용자가 고른다: Claude Code CLI(`claude -p`, haiku) / Codex CLI(`codex exec`) / 로컬 LLM(Hy-MT2 1.8B, MLX). 로컬 모델은 사용자가 버튼으로 받는다 (2026-10-30 사용자 결정) |
 | 쓰지 않는 엔진 | Apple 번역(Translation 프레임워크): 비교 결과 가장 빠르지만(0.2~0.8초) 맥락 오역이 많음 (2026-10-30 사용자 결정, `.agent/archive/TASK-012.md`) |
 | 최소 macOS | 15.0 |
+| 로컬 LLM 지원 Mac | Apple Silicon(M1 이상)만. Intel Mac은 로컬 LLM을 끄고 Claude Code·Codex만 (2026-10-30 사용자 결정). 앱 자체는 Intel(x86_64)로도 빌드됨 |
 | Xcode 프로젝트 | XcodeGen(`project.yml`)으로 생성. `.xcodeproj`는 git에서 제외 |
 | Lint | Xcode 내장 `swift format` (설정: `.swift-format`) |
 
@@ -36,6 +37,7 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
   - 좌표 변환은 `TranslateCore/ScreenGeometry`에서만 하고 테스트한다. 선택은 드래그를 시작한 화면 안으로 자른다
 - 캡처: ScreenCaptureKit(`SCScreenshotManager`). `CGWindowListCreateImage`는 쓰지 않는다 (macOS 15부터 사용 불가)
   - 구현: `App/ScreenCapturer.swift`. 이 앱의 창은 `excludingApplications`로 빼고, 크기는 `backingScaleFactor`로 원본 픽셀
+  - 창 목록 조회(`SCShareableContent`)와 필터는 화면별로 5초 재사용하고, 캡처가 실패하면 다시 조회한다
 - OCR: Vision `RecognizeTextRequest`(기기 내 처리). 구현: `TranslateCore/TextRecognizer.swift`
   - 반드시 언어 자동 감지 + 언어 힌트로 쓴다. 기본값(en-US 하나)은 한국어를 인식하지 못하고,
     자동 감지 없이 여러 언어를 지정하면 일본어 줄이 빠진다 (macOS 26.3 확인)
@@ -61,7 +63,10 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
     본체 창은 그림자를 끈다 (투명 창이라 번역 문단마다 그림자가 생긴다)
   - 도구 막대(렌즈 위, 공간이 없으면 안쪽): 끌어서 이동, 진행 표시, 언어, 원문 보기(본체를 잠시 투명하게), 복사, 닫기
   - 크기 조절 손잡이(오른쪽 아래). 이동·크기 조절 중에는 캡처를 멈추고 끝나면 변화 감지를 초기화한다
-  - 감시: 0.5초마다 캡처 → `ImageFingerprint`/`ChangeTracker`로 바뀐 뒤 멈췄을 때만 OCR (기준값은 측정으로 정함)
+  - 감시: 캡처 → `ImageFingerprint`/`ChangeTracker`로 바뀐 뒤 멈췄을 때만 OCR (기준값은 측정으로 정함). 간격은
+    `CaptureSchedule`: 평소 0.5초, 화면이 바뀌는 중 0.15초, 스크롤 중이면 마지막 스크롤 0.15초 뒤 바로
+  - 단계별 시간 기록(`Logger` subsystem `com.example.AITranslate`, category `pipeline`, info 단계, 숫자·엔진 이름만).
+    보기: `/usr/bin/log stream --level info --predicate 'subsystem == "com.example.AITranslate"'` (zsh는 `log`가 내장 명령)
   - 지난 번역 숨김(`LensModel.isOutdated`): 렌즈 위 스크롤(전역 스크롤 모니터, 마우스 이벤트라 권한 불필요), 처리한 화면에서
     크게 벗어난 화면(`ChangeTracker.movedAwayThreshold`, 단어 하나 변경은 제외), 이동·크기 조절 중에는 번역을 그리지 않는다.
     다시 인식하면 보이고, 화면이 그대로면 스크롤이 멈춘 뒤 보인다. 인식 중에 또 스크롤했으면 다음 화면을 기다린다
@@ -70,7 +75,10 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
   엔진별 번역 엔진을 만들어 기억), 화면 `App/SettingsView.swift`, 창 `App/SettingsWindowController.swift`(메뉴 "설정…" ⌘,)
   - 엔진을 아직 고르지 않았으면(처음 실행) 같은 화면을 시작 안내로 띄우고, ⌘⇧1도 렌즈 대신 안내를 띄운다
   - 엔진을 바꾸면 열린 렌즈가 진행 중 요청을 취소하고 기억한 번역을 비워 새 엔진으로 다시 번역한다
-  - 엔진의 `preferredBatchSize`만큼 나눠 보낸다 (로컬 1: 번역되는 대로 보임, CLI는 실행 비용이 커서 한 번에)
+  - 묶음은 `TranslationScheduling.batch`: 엔진의 `preferredBatchSize`(로컬 1: 번역되는 대로 보임), 새 화면이면
+    `firstBatchSize`(Claude 3: 위쪽 문단 먼저, Codex는 요청 고정 비용이 커서 나누지 않음), 그 밖에는 남은 문단을 한 번에
+  - 렌즈 위·아래 끝에 걸친(잘린) 문단은 스크롤마다 글이 바뀌므로 맨 뒤에 번역한다(`LensGeometry.isCutOff`)
+  - 진행 중 요청의 문단이 절반 넘게 화면에서 지나가면 요청을 버리고 지금 화면부터 번역한다(`TranslationScheduling.shouldAbandon`)
 - 로컬 모델: `TranslateCore/LocalModel.swift`(Hugging Face `mlx-community/Hy-MT2-1.8B-4bit`, 리비전·파일 크기·해시 고정),
   `ModelStore`(`~/Library/Application Support/AITranslate/Models/<id>`), `ModelDownloader`(받는 중에는 `<id>.partial`,
   파일마다 SHA-256/git 블롭 SHA-1 확인 후 옮김, 실패·취소 시 삭제). 자동으로 받지 않는다 (사용자가 "모델 받기")
@@ -79,6 +87,11 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
     프롬프트에 특수 토큰이 있으므로 `addSpecialTokens: false`. 샘플링은 모델 카드 권장값. 측정(M5): 불러오기 1.25초,
     생성 초당 101~112토큰, 짧은 문구 0.14초·한 줄 0.35초·긴 문단 1.2초
   - 빌드에 Metal 툴체인이 필요하다 (Xcode 26은 따로 받음: `xcodebuild -downloadComponent MetalToolchain`)
+  - Intel 제외: `TranslationEngine.isSupported(onAppleSilicon:)`, 앱은 `arch(arm64)`로 판단(`EngineSettings.isAppleSilicon`). Intel·Rosetta에서는 설정의 로컬 카드를 끄고, 저장된 선택이 로컬이면 다시 고르게 한다
+  - 로컬 엔진은 생성되는 대로 보여준다(`onPartial`, 화면 갱신 0.05초 간격). 최종 번역이 오면 그것으로 바꾼다
+  - 미리 준비: 앱 시작·엔진 변경·모델 받기 완료 때 `EngineSettings.prepare()`로 엔진을 만들어 둔다(같은 엔진 준비는 하나만).
+    로컬 모델은 불러온 뒤 짧은 예열 생성으로 GPU 커널을 준비한다(첫 생성 4.3초 측정). 로컬 엔진을 고른 동안은 모델(약 1.2GB)을
+    메모리에 둔다. 렌즈는 엔진 준비를 기다리지 않고 OCR부터 하고, 준비가 끝나면 번역을 시작한다
 - 흐름: `TranslationLensController`가 권한·고지 → 선택 → `LensSession` 생성(렌즈는 하나, 새로 만들면 바꿈).
   대상 언어는 `TargetLanguage`, 선택값은 UserDefaults `TargetLanguage`에 저장 (없으면 시스템 선호 언어)
 - 렌즈 화면은 화면 밖 렌더링(`NSHostingView.cacheDisplay`)으로 상태별 모양을 확인할 수 있다 (스크래치 하네스, 저장소 밖)
@@ -183,6 +196,10 @@ swift format format -i -r --configuration .swift-format App Packages/TranslateCo
 ### 개인정보
 
 - 캡처 이미지, 인식한 텍스트, 번역 결과를 로그나 크래시 리포트에 남기지 않는다.
+- 캡처 이미지는 파일로 저장하지 않는다 (메모리에서 쓰고 버린다). 번역 엔진에는 인식한 글만 보낸다.
+- 번역 기억(`TranslateCore/TranslationMemoryStore.swift`): 같은 글을 다시 번역하지 않도록 원문·번역을 엔진별로
+  `~/Library/Application Support/AITranslate/TranslationMemory/<엔진>.json`에 저장한다(파일 권한 0600, 엔진별 최근 500개).
+  렌즈를 만들 때 불러오고 닫을 때·엔진을 바꿀 때·앱을 끌 때 저장한다. 설정의 "번역 기억 지우기"로 파일과 열린 렌즈의 기억을 지운다
 - 외부 엔진으로 처음 번역하기 전에 선택 영역의 내용이 어디로 전송되는지 알린다. 구현: `App/DataTransmissionNotice.swift`
   (엔진별 1회. 동의 여부는 UserDefaults `DataTransmissionNoticeAccepted`(Claude)·`DataTransmissionNoticeAccepted.codex`.
   로컬 엔진은 전송하지 않으므로 묻지 않는다)

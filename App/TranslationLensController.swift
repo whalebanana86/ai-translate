@@ -11,6 +11,7 @@ final class TranslationLensController {
     private let settings: EngineSettings
     private let overlay = SelectionOverlayController()
     private let capturer = ScreenCapturer()
+    private let memoryStore = TranslationMemoryStore.standard
     private var lens: LensSession?
     private var isSelecting = false
 
@@ -41,9 +42,10 @@ final class TranslationLensController {
         guard let selection else { return }
 
         lens?.close()
-        let session = LensSession(frame: selection.globalRect, language: language, capturer: capturer) {
-            [settings] in try await settings.makeProvider()
-        }
+        let session = LensSession(
+            frame: selection.globalRect, language: language, capturer: capturer,
+            engine: settings.engine ?? .claudeCode, memoryStore: memoryStore
+        ) { [settings] in try await settings.makeProvider() }
         session.onLanguageChange = { [weak self] language in self?.language = language }
         session.onClose = { [weak self, weak session] in
             if self?.lens === session {
@@ -61,7 +63,17 @@ final class TranslationLensController {
             lens.close()
             return
         }
-        lens.changeEngine()
+        lens.changeEngine(to: engine)
+    }
+
+    /// 앱을 끌 때 열린 렌즈의 번역 기억을 저장한다
+    func saveMemory() {
+        lens?.saveMemory()
+    }
+
+    /// 설정에서 번역 기억을 지우면 열린 렌즈의 기억도 비운다
+    func memoryDidClear() {
+        lens?.clearMemory()
     }
 }
 
@@ -70,7 +82,6 @@ final class TranslationLensController {
 final class LensSession {
     private static let toolbarHeight: CGFloat = 34
     private static let handleSize: CGFloat = 18
-    private static let captureInterval: Duration = .milliseconds(500)
     /// 마지막 스크롤 뒤 이만큼 지나야 스크롤이 멈춘 것으로 본다
     private static let scrollQuietPeriod: Duration = .milliseconds(500)
     private static let aboveLens = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)
@@ -89,19 +100,40 @@ final class LensSession {
     /// 선택된 번역 엔진을 만든다 (설정이 엔진별로 기억해 둔다)
     private let makeProvider: @MainActor () async throws -> any TranslationProvider
     private var tracker = ChangeTracker()
-    private var memory = TranslationMemory()
+    private var memory: TranslationMemory
+    /// 기억을 저장할 엔진 (엔진을 바꾸면 그 엔진의 기억으로 바꿔 끼운다)
+    private var memoryEngine: TranslationEngine
+    private let memoryStore: TranslationMemoryStore
     private var translator: RegionTranslator?
+    /// 엔진 준비 (렌즈를 띄울 때 시작해 OCR과 함께 진행한다)
+    private var translatorTask: Task<Void, Never>?
+    /// 엔진 변경 번호. 엔진이 바뀐 뒤 늦게 끝난 준비를 버린다
+    private var engineGeneration = 0
+    private let recognizer = TextRecognizer()
     private var blocks: [TextBlock] = []
     /// `blocks`와 같은 순서의 원문 색
     private var colors: [BlockColors] = []
     private var scale: CGFloat = 2
+    /// 마지막으로 인식한 캡처 이미지 높이(픽셀). 렌즈 끝에 걸친 문단을 가린다
+    private var imageHeight: CGFloat = 0
     private var loopTask: Task<Void, Never>?
     private var translateTask: Task<Void, Never>?
+    /// 진행 중인 요청의 원문. 화면이 지나가면 요청을 버리는 데 쓴다
+    private var inFlightTexts: [String] = []
+    /// 요청 번호. 버린 요청이 늦게 끝나도 새 요청 상태를 덮어쓰지 않게 한다
+    private var translateGeneration = 0
+    /// 생성 중인 번역(원문 → 지금까지 나온 글). 로컬 엔진이 생성하는 대로 대기 문단 자리에 그린다
+    private var partials: [String: String] = [:]
+    private var lastPartialRefresh: ContinuousClock.Instant?
+    /// 중간 글로 화면을 다시 그리는 최소 간격 (생성은 초당 약 100토큰)
+    private static let partialRefreshInterval: Duration = .milliseconds(50)
     /// 이동·크기 조절 중이면 시작 시점의 마우스 위치와 렌즈 영역
     private var interaction: (mouse: CGPoint, frame: CGRect)?
     private var scrollMonitor: Any?
     /// 렌즈 위에서 마지막으로 스크롤한 때
     private var lastScroll: ContinuousClock.Instant?
+    /// 마지막 캡처에서 화면이 바뀌는 중이었는지. 그동안은 자주 찍어 멈춤을 빨리 확인한다 (`CaptureSchedule`)
+    private var isScreenChanging = false
     /// 화면이 바뀌기 시작한 때(렌즈 생성·스크롤·큰 변화). 번역이 다 보일 때까지의 체감 시간을 잰다
     private var changeStartedAt: ContinuousClock.Instant?
 
@@ -110,12 +142,16 @@ final class LensSession {
     private static let log = Logger(subsystem: "com.example.AITranslate", category: "pipeline")
 
     init(
-        frame: CGRect, language: TargetLanguage, capturer: ScreenCapturer,
+        frame: CGRect, language: TargetLanguage, capturer: ScreenCapturer, engine: TranslationEngine,
+        memoryStore: TranslationMemoryStore,
         makeProvider: @escaping @MainActor () async throws -> any TranslationProvider
     ) {
         self.frame = frame
         self.capturer = capturer
         self.makeProvider = makeProvider
+        self.memoryStore = memoryStore
+        memoryEngine = engine
+        memory = memoryStore.load(engine)
         let model = LensModel(language: language)
         self.model = model
         bodyPanel = LensPanel(
@@ -140,6 +176,7 @@ final class LensSession {
 
     func show() {
         changeStartedAt = .now
+        prepareTranslator()
         layoutPanels()
         for panel in [bodyPanel, toolbarPanel, handlePanel] {
             panel.orderFrontRegardless()
@@ -152,7 +189,8 @@ final class LensSession {
         loopTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.tick()
-                try? await Task.sleep(for: Self.captureInterval)
+                let delay = self?.nextCaptureDelay() ?? CaptureSchedule.idleInterval
+                try? await Task.sleep(for: delay)
             }
         }
     }
@@ -160,6 +198,8 @@ final class LensSession {
     func close() {
         loopTask?.cancel()
         translateTask?.cancel()
+        translatorTask?.cancel()
+        saveMemory()
         if let scrollMonitor {
             NSEvent.removeMonitor(scrollMonitor)
         }
@@ -179,7 +219,9 @@ final class LensSession {
             let image = try await capturer.capture(selection)
             let captured = ContinuousClock.now
             guard interaction == nil, let fingerprint = ImageFingerprint(image) else { return }
-            switch tracker.observe(fingerprint) {
+            let change = tracker.observe(fingerprint)
+            isScreenChanging = change == .movedAway
+            switch change {
             case .unchanged:
                 // 스크롤했지만 화면이 그대로인 경우(페이지 끝 등). 스크롤이 멈추면 다시 보여준다
                 if !scrolled(since: .now - Self.scrollQuietPeriod) {
@@ -196,10 +238,9 @@ final class LensSession {
             if translateTask == nil {
                 model.status = .recognizing
             }
+            // 엔진 준비를 기다리지 않고 바로 인식한다 (준비는 `prepareTranslator`가 따로 한다)
             let settled = ContinuousClock.now
-            let translator = try await locateTranslator()
-            let prepared = ContinuousClock.now
-            let recognized = try await translator.recognize(image)
+            let recognized = TextBlockGrouper.group(try await recognizer.recognize(image))
             let ocred = ContinuousClock.now
             let sampled = await Task.detached {
                 recognized.map { BlockColors.sample(image, in: $0.boundingBox) ?? .plain }
@@ -211,25 +252,30 @@ final class LensSession {
             blocks = recognized
             colors = sampled
             scale = selection.scale
+            imageHeight = CGFloat(image.height)
             model.hasRecognized = true
             refreshParagraphs()
+            abandonTranslationIfPassed()
             let missing = memory.missing(in: blocks, for: model.language).count
             let timings = (
-                capture: Self.ms(captured - started), prepare: Self.ms(prepared - settled),
-                ocr: Self.ms(ocred - prepared),
-                colors: Self.ms(colored - ocred), layout: Self.ms(.now - colored), sinceChange: sinceChange()
+                capture: Self.ms(captured - started), ocr: Self.ms(ocred - settled),
+                colors: Self.ms(colored - ocred), layout: Self.ms(.now - colored), sinceChange: sinceChange(),
+                sinceScroll: lastScroll.map { Self.ms(.now - $0) } ?? -1
             )
             Self.log.info(
                 """
-                인식: 캡처 \(timings.capture, privacy: .public)ms · 엔진 준비 \(timings.prepare, privacy: .public)ms · \
+                인식: 캡처 \(timings.capture, privacy: .public)ms · \
                 OCR \(timings.ocr, privacy: .public)ms · 색 \(timings.colors, privacy: .public)ms · \
                 배치 \(timings.layout, privacy: .public)ms · 문단 \(recognized.count, privacy: .public)개 \
-                (번역 필요 \(missing, privacy: .public)개) · 변화 후 \(timings.sinceChange, privacy: .public)ms
+                (번역 필요 \(missing, privacy: .public)개) · 변화 후 \(timings.sinceChange, privacy: .public)ms · \
+                마지막 스크롤 후 \(timings.sinceScroll, privacy: .public)ms
                 """)
             // 인식하는 사이에 또 스크롤했다면 숨긴 채로 다음 화면을 기다린다
             if !scrolled(since: started) {
                 model.isOutdated = false
             }
+            // 엔진 준비가 실패했으면 화면이 바뀔 때마다 다시 준비한다
+            prepareTranslator()
             translateIfNeeded()
         } catch is CancellationError {
             return
@@ -243,6 +289,10 @@ final class LensSession {
         markChange()
         lastScroll = .now
         model.isOutdated = true
+    }
+
+    private func nextCaptureDelay() -> Duration {
+        CaptureSchedule.delay(isChanging: isScreenChanging, lastScroll: lastScroll, now: .now)
     }
 
     private func markChange() {
@@ -276,32 +326,44 @@ final class LensSession {
             scale: screen.backingScaleFactor, globalRect: clamped)
     }
 
-    private func locateTranslator() async throws -> RegionTranslator {
-        if let translator {
-            return translator
-        }
-        let located = RegionTranslator(provider: try await makeProvider())
-        translator = located
-        return located
-    }
-
-    /// 엔진이 바뀌면 진행 중 요청을 멈추고, 기억한 번역을 비워 지금 보이는 문단을 새 엔진으로 다시 번역한다
-    func changeEngine() {
-        translateTask?.cancel()
-        translateTask = nil
-        translator = nil
-        memory = TranslationMemory()
-        refreshParagraphs()
-        guard !blocks.isEmpty else { return }
-        model.status = .translating
-        Task { [weak self] in
+    /// 번역 엔진을 준비한다. 준비되면 기다리던 문단을 번역한다. 이미 있거나 준비 중이면 아무것도 하지 않는다
+    private func prepareTranslator() {
+        guard translator == nil, translatorTask == nil else { return }
+        let generation = engineGeneration
+        let started = ContinuousClock.now
+        translatorTask = Task { [weak self] in
+            guard let self else { return }
             do {
-                _ = try await self?.locateTranslator()
-                self?.translateIfNeeded()
+                let provider = try await makeProvider()
+                guard engineGeneration == generation else { return }
+                translator = RegionTranslator(recognizer: recognizer, provider: provider)
+                translatorTask = nil
+                let engine = String(describing: type(of: provider))
+                Self.log.info("엔진 준비: \(engine, privacy: .public) \(Self.ms(.now - started), privacy: .public)ms")
+                translateIfNeeded()
             } catch {
-                self?.model.status = .failed(Self.message(for: error))
+                guard engineGeneration == generation else { return }
+                translatorTask = nil
+                model.status = .failed(Self.message(for: error))
             }
         }
+    }
+
+    /// 엔진이 바뀌면 진행 중 요청을 멈추고, 지금 기억을 저장한 뒤 새 엔진의 기억으로 바꿔 지금 보이는 문단을 다시 번역한다
+    func changeEngine(to engine: TranslationEngine) {
+        cancelTranslation()
+        translatorTask?.cancel()
+        translatorTask = nil
+        engineGeneration += 1
+        translator = nil
+        saveMemory()
+        memoryEngine = engine
+        memory = memoryStore.load(engine)
+        refreshParagraphs()
+        if !blocks.isEmpty {
+            model.status = .translating
+        }
+        prepareTranslator()
     }
 
     // MARK: 번역
@@ -311,7 +373,10 @@ final class LensSession {
     private func translateIfNeeded() {
         guard translateTask == nil, let translator else { return }
         let language = model.language
-        let missing = memory.missing(in: blocks, for: language)
+        let height = imageHeight
+        let missing = TranslationScheduling.prioritized(memory.missing(in: blocks, for: language)) {
+            LensGeometry.isCutOff($0, imageHeight: height)
+        }
         guard !missing.isEmpty else {
             model.status = .watching
             if changeStartedAt != nil, !model.isOutdated {
@@ -320,37 +385,98 @@ final class LensSession {
             }
             return
         }
-        let batch = translator.provider.preferredBatchSize.map { Array(missing.prefix($0)) } ?? missing
+        let hasVisibleTranslation = blocks.contains { memory.translation(of: $0.text, in: language) != nil }
+        let batch = TranslationScheduling.batch(
+            missing, hasVisibleTranslation: hasVisibleTranslation,
+            preferredBatchSize: translator.provider.preferredBatchSize,
+            firstBatchSize: translator.provider.firstBatchSize)
         model.status = .translating
         let requested = ContinuousClock.now
+        translateGeneration += 1
+        let generation = translateGeneration
+        inFlightTexts = batch.map(\.text)
+        let showPartial: @MainActor (String, String) -> Void = { [weak self] text, partial in
+            self?.showPartial(partial, for: text, language: language, generation: generation)
+        }
         translateTask = Task { [weak self] in
             do {
-                let translated = try await translator.translate(batch, to: language)
+                let translated = try await translator.translate(batch, to: language) { block, partial in
+                    Task { @MainActor in showPartial(block.text, partial) }
+                }
                 let engine = String(describing: type(of: translator.provider))
                 let elapsed = Self.ms(.now - requested)
                 Self.log.info(
                     "번역: \(engine, privacy: .public) 문단 \(batch.count, privacy: .public)개 \(elapsed, privacy: .public)ms"
                 )
                 guard let self else { return }
+                // 버린 요청이라도 번역은 기억해 둔다 (다시 스크롤해 올라오면 바로 보인다)
                 for block in translated {
                     self.memory.store(block.translation, of: block.source.text, in: language)
+                    self.partials[block.source.text] = nil
                 }
+                guard self.translateGeneration == generation else { return }
                 self.translateTask = nil
                 self.refreshParagraphs()
                 self.translateIfNeeded()
             } catch is CancellationError {
                 return
             } catch {
-                self?.translateTask = nil
-                self?.model.status = .failed(Self.message(for: error))
+                guard let self, self.translateGeneration == generation else { return }
+                self.translateTask = nil
+                self.model.status = .failed(Self.message(for: error))
             }
         }
     }
 
-    private func changeLanguage(to language: TargetLanguage) {
-        onLanguageChange?(language)
+    /// 진행 중인 요청의 문단이 대부분 화면에서 지나갔으면 요청을 버리고 지금 화면부터 번역하게 한다
+    private func abandonTranslationIfPassed() {
+        guard translateTask != nil,
+            TranslationScheduling.shouldAbandon(inFlight: inFlightTexts, visible: Set(blocks.map(\.text)))
+        else { return }
+        Self.log.info("지나간 화면 번역 취소: 문단 \(self.inFlightTexts.count, privacy: .public)개")
+        cancelTranslation()
+    }
+
+    /// 생성 중인 번역을 그린다. 이미 끝났거나 버린 요청·바뀐 언어의 중간 글은 무시한다
+    private func showPartial(_ partial: String, for text: String, language: TargetLanguage, generation: Int) {
+        guard translateGeneration == generation, model.language == language,
+            memory.translation(of: text, in: language) == nil
+        else { return }
+        partials[text] = partial
+        let now = ContinuousClock.now
+        if let lastPartialRefresh, now - lastPartialRefresh < Self.partialRefreshInterval {
+            return
+        }
+        lastPartialRefresh = now
+        refreshParagraphs()
+    }
+
+    func saveMemory() {
+        do {
+            try memoryStore.save(memory, for: memoryEngine)
+        } catch {
+            Self.log.error("번역 기억 저장 실패: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func clearMemory() {
+        cancelTranslation()
+        memory = TranslationMemory()
+        refreshParagraphs()
+        translateIfNeeded()
+    }
+
+    private func cancelTranslation() {
         translateTask?.cancel()
         translateTask = nil
+        translateGeneration += 1
+        inFlightTexts = []
+        partials = [:]
+    }
+
+    private func changeLanguage(to language: TargetLanguage) {
+        onLanguageChange?(language)
+        cancelTranslation()
         refreshParagraphs()
         translateIfNeeded()
     }
@@ -359,8 +485,12 @@ final class LensSession {
         let frames = LensGeometry.paragraphFrames(of: blocks, scale: scale, lensSize: frame.size)
         model.paragraphs = zip(blocks, frames).enumerated().map { index, pair in
             let (block, paragraphFrame) = pair
+            var content = memory.content(of: block, in: model.language)
+            if case .pending = content, let partial = partials[block.text], !partial.isEmpty {
+                content = .translated(partial)
+            }
             return LensModel.Paragraph(
-                id: index, content: memory.content(of: block, in: model.language), frame: paragraphFrame,
+                id: index, content: content, frame: paragraphFrame,
                 fontSize: LensGeometry.fontSize(of: block, scale: scale),
                 colors: colors.indices.contains(index) ? colors[index] : .plain)
         }
