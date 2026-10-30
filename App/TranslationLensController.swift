@@ -97,6 +97,10 @@ final class LensSession {
     private var scale: CGFloat = 2
     private var loopTask: Task<Void, Never>?
     private var translateTask: Task<Void, Never>?
+    /// 진행 중인 요청의 원문. 화면이 지나가면 요청을 버리는 데 쓴다
+    private var inFlightTexts: [String] = []
+    /// 요청 번호. 버린 요청이 늦게 끝나도 새 요청 상태를 덮어쓰지 않게 한다
+    private var translateGeneration = 0
     /// 이동·크기 조절 중이면 시작 시점의 마우스 위치와 렌즈 영역
     private var interaction: (mouse: CGPoint, frame: CGRect)?
     private var scrollMonitor: Any?
@@ -213,6 +217,7 @@ final class LensSession {
             scale = selection.scale
             model.hasRecognized = true
             refreshParagraphs()
+            abandonTranslationIfPassed()
             let missing = memory.missing(in: blocks, for: model.language).count
             let timings = (
                 capture: Self.ms(captured - started), prepare: Self.ms(prepared - settled),
@@ -287,8 +292,7 @@ final class LensSession {
 
     /// 엔진이 바뀌면 진행 중 요청을 멈추고, 기억한 번역을 비워 지금 보이는 문단을 새 엔진으로 다시 번역한다
     func changeEngine() {
-        translateTask?.cancel()
-        translateTask = nil
+        cancelTranslation()
         translator = nil
         memory = TranslationMemory()
         refreshParagraphs()
@@ -323,6 +327,9 @@ final class LensSession {
         let batch = translator.provider.preferredBatchSize.map { Array(missing.prefix($0)) } ?? missing
         model.status = .translating
         let requested = ContinuousClock.now
+        translateGeneration += 1
+        let generation = translateGeneration
+        inFlightTexts = batch.map(\.text)
         translateTask = Task { [weak self] in
             do {
                 let translated = try await translator.translate(batch, to: language)
@@ -332,25 +339,43 @@ final class LensSession {
                     "번역: \(engine, privacy: .public) 문단 \(batch.count, privacy: .public)개 \(elapsed, privacy: .public)ms"
                 )
                 guard let self else { return }
+                // 버린 요청이라도 번역은 기억해 둔다 (다시 스크롤해 올라오면 바로 보인다)
                 for block in translated {
                     self.memory.store(block.translation, of: block.source.text, in: language)
                 }
+                guard self.translateGeneration == generation else { return }
                 self.translateTask = nil
                 self.refreshParagraphs()
                 self.translateIfNeeded()
             } catch is CancellationError {
                 return
             } catch {
-                self?.translateTask = nil
-                self?.model.status = .failed(Self.message(for: error))
+                guard let self, self.translateGeneration == generation else { return }
+                self.translateTask = nil
+                self.model.status = .failed(Self.message(for: error))
             }
         }
     }
 
-    private func changeLanguage(to language: TargetLanguage) {
-        onLanguageChange?(language)
+    /// 진행 중인 요청의 문단이 대부분 화면에서 지나갔으면 요청을 버리고 지금 화면부터 번역하게 한다
+    private func abandonTranslationIfPassed() {
+        guard translateTask != nil,
+            TranslationScheduling.shouldAbandon(inFlight: inFlightTexts, visible: Set(blocks.map(\.text)))
+        else { return }
+        Self.log.info("지나간 화면 번역 취소: 문단 \(self.inFlightTexts.count, privacy: .public)개")
+        cancelTranslation()
+    }
+
+    private func cancelTranslation() {
         translateTask?.cancel()
         translateTask = nil
+        translateGeneration += 1
+        inFlightTexts = []
+    }
+
+    private func changeLanguage(to language: TargetLanguage) {
+        onLanguageChange?(language)
+        cancelTranslation()
         refreshParagraphs()
         translateIfNeeded()
     }
