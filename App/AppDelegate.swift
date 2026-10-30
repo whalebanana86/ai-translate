@@ -8,15 +8,30 @@ extension KeyboardShortcuts.Name {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let lens = TranslationLensController()
+    private let settings = EngineSettings()
+    private lazy var lens = TranslationLensController(settings: settings)
+    private lazy var settingsWindow = SettingsWindowController(settings: settings)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         KeyboardShortcuts.onKeyUp(for: .translateRegion) { [weak self] in
             self?.translateRegion()
         }
+        settings.onEngineChange = { [weak self] in self?.lens.engineDidChange() }
+        // 처음 실행: 번역 엔진부터 고른다
+        if settings.engine == nil {
+            settingsWindow.show(onboarding: true)
+        }
     }
 
     func translateRegion() {
+        guard settings.engine != nil else {
+            settingsWindow.show(onboarding: true)
+            return
+        }
         lens.start()
+    }
+
+    func showSettings() {
+        settingsWindow.show(onboarding: false)
     }
 }

@@ -10,6 +10,10 @@ struct AITranslateApp: App {
                 appDelegate.translateRegion()
             }
             .keyboardShortcut("1", modifiers: [.command, .shift])
+            Button("설정…") {
+                appDelegate.showSettings()
+            }
+            .keyboardShortcut(",")
             Divider()
             Button("종료") {
                 NSApplication.shared.terminate(nil)
