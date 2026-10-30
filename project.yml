@@ -1,0 +1,48 @@
+# Xcode 프로젝트 정의. `xcodegen generate`로 AITranslate.xcodeproj를 생성한다 (.pbxproj 직접 편집 금지).
+name: AITranslate
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+
+packages:
+  TranslateCore:
+    path: Packages/TranslateCore
+  # 전역 단축키 (Carbon RegisterEventHotKey 기반, 손쉬운 사용 권한 불필요)
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: 3.1.0
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+
+targets:
+  AITranslate:
+    type: application
+    platform: macOS
+    sources:
+      - App
+    dependencies:
+      - package: TranslateCore
+      - package: KeyboardShortcuts
+    scheme: {}
+    settings:
+      base:
+        # 배포 전 실제 번들 ID로 변경해야 한다
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.AITranslate
+        PRODUCT_NAME: AITranslate
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: AI Translate
+        INFOPLIST_KEY_LSUIElement: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        # 외부 CLI 실행이 필요해 App Sandbox를 쓰지 않는다. 공증을 위해 Hardened Runtime은 켠다
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic

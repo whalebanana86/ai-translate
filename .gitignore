@@ -1,0 +1,9 @@
+.DS_Store
+
+# XcodeGen 생성물 (project.yml에서 생성)
+*.xcodeproj/
+
+# 빌드 산출물
+.build/
+DerivedData/
+xcuserdata/

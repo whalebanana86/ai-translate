@@ -1,0 +1,80 @@
+import CoreGraphics
+
+/// 렌즈 안에서 번역 문단이 놓일 자리. 원문 문단의 왼쪽 위에서 시작한다.
+public struct ParagraphFrame: Equatable, Sendable {
+    public var origin: CGPoint
+    /// 번역 글이 줄바꿈되는 너비
+    public var width: CGFloat
+    /// 번역 글이 쓸 수 있는 높이. 그래도 넘치면 화면에서 글자를 줄인다
+    public var maxHeight: CGFloat
+    /// 원문 문단 크기. 번역이 짧아도 이만큼은 가려야 원문 글자가 보이지 않는다
+    public var sourceSize: CGSize
+
+    public init(origin: CGPoint, width: CGFloat, maxHeight: CGFloat, sourceSize: CGSize) {
+        self.origin = origin
+        self.width = width
+        self.maxHeight = maxHeight
+        self.sourceSize = sourceSize
+    }
+}
+
+/// 번역 렌즈의 배치 계산.
+///
+/// - 렌즈 안 좌표: 렌즈 왼쪽 위 원점, 포인트 단위 (캡처 이미지 픽셀 ÷ 화면 배율)
+/// - 창 좌표: 전역 AppKit 좌표 (주 화면 왼쪽 아래 원점, y 위로)
+public enum LensGeometry {
+    /// 번역 문단과 이웃 블록 사이 여백
+    public static let spacing: CGFloat = 4
+    public static let fontSizeRange: ClosedRange<CGFloat> = 11...24
+    public static let minimumLensSize = CGSize(width: 160, height: 80)
+    /// 렌즈가 좁아도 도구 막대 버튼이 다 보이는 너비
+    public static let minimumToolbarWidth: CGFloat = 300
+
+    /// 문단을 원문 위치(왼쪽 위)에 그대로 둔다. 번역이 길어도 다른 문단을 밀지 않는다.
+    /// - 너비: 여러 줄 문단은 원문 너비(다단 레이아웃 유지). 한 줄 문단(제목·버튼)은 번역이 길어질 수 있으므로
+    ///   오른쪽 이웃 앞이나 렌즈 끝까지. 문단 영역 안에서 시작하는 블록은 이웃으로 보지 않는다
+    /// - 높이: 아래 블록 앞이나 렌즈 아래 끝까지 (원문 높이보다 작게 하지는 않는다)
+    public static func paragraphFrames(of blocks: [TextBlock], scale: CGFloat, lensSize: CGSize) -> [ParagraphFrame] {
+        let boxes = blocks.map { block in
+            let box = block.boundingBox
+            return CGRect(
+                x: box.minX / scale, y: box.minY / scale, width: box.width / scale, height: box.height / scale)
+        }
+        return zip(blocks, boxes).map { block, box in
+            let rightNeighbor = boxes.filter { other in
+                other.minX >= box.maxX && other.minY < box.maxY && other.maxY > box.minY
+            }
+            .map(\.minX).min()
+            let right = min(rightNeighbor.map { $0 - spacing } ?? lensSize.width, lensSize.width)
+            let width = block.lines.count > 1 ? box.width : max(box.width, right - box.minX)
+            let below = boxes.filter { other in
+                other.minY > box.minY && other.minX < box.minX + width && other.maxX > box.minX
+            }
+            .map(\.minY).min()
+            let bottom = min(below.map { $0 - spacing } ?? lensSize.height, lensSize.height)
+            return ParagraphFrame(
+                origin: box.origin, width: width, maxHeight: max(box.height, bottom - box.minY), sourceSize: box.size)
+        }
+    }
+
+    /// 원래 글자 크기에 맞춘 번역 글자 크기. OCR 줄 높이는 글자 크기와 비슷하다.
+    /// 아래로 내려가는 글자(g, y 등)가 없는 줄은 낮게 잡히므로 문단에서 가장 높은 줄을 기준으로 한다.
+    public static func fontSize(of block: TextBlock, scale: CGFloat) -> CGFloat {
+        let lineHeight = (block.lines.map(\.boundingBox.height).max() ?? 0) / scale
+        return min(max(lineHeight * 0.9, fontSizeRange.lowerBound), fontSizeRange.upperBound)
+    }
+
+    /// 도구 막대 위치. 렌즈 바로 위에 두고, 화면 위쪽에 공간이 없으면 렌즈 안 위쪽에 둔다.
+    public static func toolbarFrame(height: CGFloat, for lens: CGRect, in visibleFrame: CGRect) -> CGRect {
+        let y = lens.maxY + height <= visibleFrame.maxY ? lens.maxY : lens.maxY - height
+        return CGRect(x: lens.minX, y: y, width: max(lens.width, minimumToolbarWidth), height: height)
+    }
+
+    /// 오른쪽 아래 모서리를 끌어 크기를 바꾼다. 왼쪽 위는 고정하고 최소 크기를 지킨다.
+    /// `drag`는 전역 AppKit 좌표의 마우스 이동량이라 아래로 끌면 dy가 음수다.
+    public static func resized(_ lens: CGRect, by drag: CGSize) -> CGRect {
+        let width = max(minimumLensSize.width, lens.width + drag.width)
+        let height = max(minimumLensSize.height, lens.height - drag.height)
+        return CGRect(x: lens.minX, y: lens.maxY - height, width: width, height: height)
+    }
+}
