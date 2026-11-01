@@ -132,6 +132,11 @@ final class LensSession {
     /// 이동·크기 조절 중이면 시작 시점의 마우스 위치와 렌즈 영역
     private var interaction: (mouse: CGPoint, frame: CGRect)?
     private var scrollMonitor: Any?
+    /// 클릭·앱 전환 감시. 계속 바뀌는 화면(영상) 처리를 끝내는 데 쓴다
+    private var clickMonitor: Any?
+    private var appSwitchObserver: (any NSObjectProtocol)?
+    /// 렌즈 아래가 다른 내용으로 바뀌었을 수 있는 마지막 사용자 동작(스크롤·클릭·앱 전환)
+    private var lastUserAction: ContinuousClock.Instant?
     /// 렌즈 위에서 마지막으로 스크롤한 때
     private var lastScroll: ContinuousClock.Instant?
     /// 마지막 캡처에서 화면이 바뀌는 중이었는지. 그동안은 자주 찍어 멈춤을 빨리 확인한다 (`CaptureSchedule`)
@@ -188,6 +193,15 @@ final class LensSession {
         scrollMonitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] _ in
             MainActor.assumeIsolated { self?.didScroll() }
         }
+        // 링크를 누르거나 다른 앱으로 바꾸면 영상 위에서처럼 번역을 계속 보여주지 않고 평소대로 숨긴다
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.didAct() }
+        }
+        appSwitchObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.didAct() }
+        }
         loopTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.tick()
@@ -206,6 +220,14 @@ final class LensSession {
             NSEvent.removeMonitor(scrollMonitor)
         }
         scrollMonitor = nil
+        if let clickMonitor {
+            NSEvent.removeMonitor(clickMonitor)
+        }
+        clickMonitor = nil
+        if let appSwitchObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(appSwitchObserver)
+        }
+        appSwitchObserver = nil
         for panel in [bodyPanel, toolbarPanel, handlePanel] {
             panel.orderOut(nil)
         }
@@ -224,7 +246,7 @@ final class LensSession {
             guard interaction == nil, bodyPanel.isOnActiveSpace, let fingerprint = ImageFingerprint(image) else {
                 return
             }
-            let change = tracker.observe(fingerprint, at: captured, lastScroll: lastScroll)
+            let change = tracker.observe(fingerprint, at: captured, lastUserAction: lastUserAction)
             isScreenChanging = change == .movedAway || tracker.isKeepingUp
             switch change {
             case .unchanged:
@@ -295,7 +317,13 @@ final class LensSession {
         guard bodyPanel.isOnActiveSpace, frame.contains(NSEvent.mouseLocation) else { return }
         markChange()
         lastScroll = .now
+        lastUserAction = .now
         model.isOutdated = true
+    }
+
+    private func didAct() {
+        guard bodyPanel.isOnActiveSpace else { return }
+        lastUserAction = .now
     }
 
     private func nextCaptureDelay() -> Duration {

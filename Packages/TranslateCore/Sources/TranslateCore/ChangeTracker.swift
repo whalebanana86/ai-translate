@@ -52,18 +52,18 @@ public struct ChangeTracker: Sendable {
     /// 처리한 화면과 이보다 많이 다르면 보여주던 번역을 숨긴다. 스크롤(4px 0.018)은 잡고 단어 하나 변경(0.0010)은
     /// 넘기지 않는다: 단어가 바뀐 문단만 다시 번역하면 되고, 작게 움직이는 광고 등이 있어도 번역이 계속 보이게 한다
     public static let movedAwayThreshold = 0.005
-    /// 스크롤 없이 이만큼 계속 바뀌면 멈추지 않는 화면(영상·움직이는 광고)으로 본다. 스크롤은 이벤트로 따로 기다리므로
-    /// 마지막 스크롤 뒤부터 잰다. 화면이 이만큼 멈춰 있으면 평소처럼 멈춘 뒤 처리하는 동작으로 돌아간다
+    /// 사용자 동작 없이 이만큼 계속 바뀌면 멈추지 않는 화면(영상·움직이는 광고)으로 본다. 스크롤은 이벤트로 따로 기다리므로
+    /// 마지막 사용자 동작 뒤부터 잰다
     public static let keepsChangingAfter: Duration = .milliseconds(600)
-    /// 계속 바뀌는 화면을 다시 처리하는 간격. 자막처럼 글이 바뀌면 이 간격 안에 다시 인식한다
-    public static let keepsChangingInterval: Duration = .milliseconds(400)
+    /// 계속 바뀌는 화면을 다시 처리하는 간격. 자막처럼 글이 바뀌면 이 간격 안에 다시 인식한다.
+    /// 0.4초에서는 주기가 약 0.5초라 자막이 바뀐 뒤 알아채기까지 원문이 보였다 (TASK-031)
+    public static let keepsChangingInterval: Duration = .milliseconds(250)
 
     private var previous: ImageFingerprint?
     private var processed: ImageFingerprint?
-    /// 프레임이 직전 프레임과 계속 다르기 시작한 때와 계속 같기 시작한 때
+    /// 프레임이 직전 프레임과 계속 다르기 시작한 때
     private var changingSince: ContinuousClock.Instant?
-    private var stillSince: ContinuousClock.Instant?
-    /// 계속 바뀌는 화면을 마지막으로 처리한 때. 화면이 한동안 멈추거나 스크롤하면 지운다
+    /// 계속 바뀌는 화면을 마지막으로 처리한 때. 그 뒤 사용자 동작이 있으면 지운다
     private var lastKeptUp: ContinuousClock.Instant?
 
     public init() {}
@@ -73,26 +73,20 @@ public struct ChangeTracker: Sendable {
 
     /// 새 프레임을 받는다. 직전 프레임과 같고(멈춤) 마지막으로 처리한 화면과 다르면 `settled`이며, 이 화면을 처리한 것으로
     /// 기록한다. 아직 아무것도 처리하지 않았으면 보여주던 번역도 없으므로 `movedAway`다.
-    /// 스크롤 없이 `keepsChangingAfter` 동안 멈추지 않으면 `keepsChanging`으로 처리하고, 그 뒤로는
-    /// `keepsChangingInterval`마다 처리한다.
+    /// 사용자 동작 없이 `keepsChangingAfter` 동안 멈추지 않으면 `keepsChanging`으로 처리하고, 그 뒤로는
+    /// `keepsChangingInterval`마다 처리한다. 영상 장면이 멈췄다 다시 움직여도(자막만 바뀌는 장면 등) 이 판단을 유지한다.
+    ///
+    /// - Parameter lastUserAction: 화면이 다른 내용으로 바뀌었을 수 있는 마지막 사용자 동작(스크롤·클릭·앱 전환).
+    ///   이 동작 뒤에는 평소 동작(바뀌면 숨기고 멈춘 뒤 처리)으로 돌아간다
     public mutating func observe(
-        _ frame: ImageFingerprint, at now: ContinuousClock.Instant = .now, lastScroll: ContinuousClock.Instant? = nil
+        _ frame: ImageFingerprint, at now: ContinuousClock.Instant = .now,
+        lastUserAction: ContinuousClock.Instant? = nil
     ) -> Change {
         defer { previous = frame }
         let isStill = previous.map { frame.difference(to: $0) < Self.threshold } ?? false
-        if isStill {
-            changingSince = nil
-            stillSince = stillSince ?? now
-        } else {
-            stillSince = nil
-            changingSince = changingSince ?? now
-        }
-        if let lastKeptUp {
-            let stoppedChanging = stillSince.map { now - $0 >= Self.keepsChangingAfter } ?? false
-            let scrolled = lastScroll.map { $0 > lastKeptUp } ?? false
-            if stoppedChanging || scrolled {
-                self.lastKeptUp = nil
-            }
+        changingSince = isStill ? nil : changingSince ?? now
+        if let lastKeptUp, let lastUserAction, lastUserAction > lastKeptUp {
+            self.lastKeptUp = nil
         }
 
         let differsFromProcessed = processed.map { frame.difference(to: $0) >= Self.threshold } ?? true
@@ -103,7 +97,7 @@ public struct ChangeTracker: Sendable {
             }
             return .settled
         }
-        if differsFromProcessed, isDueToKeepUp(at: now, lastScroll: lastScroll) {
+        if differsFromProcessed, isDueToKeepUp(at: now, lastUserAction: lastUserAction) {
             processed = frame
             lastKeptUp = now
             return .keepsChanging
@@ -115,12 +109,12 @@ public struct ChangeTracker: Sendable {
         return movedAway ? .movedAway : .unchanged
     }
 
-    private func isDueToKeepUp(at now: ContinuousClock.Instant, lastScroll: ContinuousClock.Instant?) -> Bool {
+    private func isDueToKeepUp(at now: ContinuousClock.Instant, lastUserAction: ContinuousClock.Instant?) -> Bool {
         if let lastKeptUp {
             return now - lastKeptUp >= Self.keepsChangingInterval
         }
         guard let changingSince else { return false }
-        let waitStart = max(changingSince, lastScroll ?? changingSince)
+        let waitStart = max(changingSince, lastUserAction ?? changingSince)
         return now - waitStart >= Self.keepsChangingAfter
     }
 
@@ -129,7 +123,6 @@ public struct ChangeTracker: Sendable {
         previous = nil
         processed = nil
         changingSince = nil
-        stillSince = nil
         lastKeptUp = nil
     }
 }

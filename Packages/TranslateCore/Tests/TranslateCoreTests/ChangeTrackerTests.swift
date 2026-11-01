@@ -80,73 +80,75 @@ struct ChangeTrackerTests {
 
     /// 0.15초 간격으로 프레임을 넣는다 (렌즈가 화면이 바뀌는 동안 찍는 간격)
     private func timedChanges(
-        _ frames: [ImageFingerprint], tracker: inout ChangeTracker, lastScroll: Duration? = nil,
+        _ frames: [ImageFingerprint], tracker: inout ChangeTracker, lastUserAction: Duration? = nil,
         from start: ContinuousClock.Instant = .now
     ) -> [ChangeTracker.Change] {
         frames.enumerated().map { index, frame in
-            tracker.observe(frame, at: start + .milliseconds(150 * index), lastScroll: lastScroll.map { start + $0 })
+            tracker.observe(
+                frame, at: start + .milliseconds(150 * index), lastUserAction: lastUserAction.map { start + $0 })
         }
     }
 
     /// 영상처럼 찍을 때마다 다른 화면
     private func playing(_ count: Int) throws -> [ImageFingerprint] {
-        let frames = [try fingerprint(page), try fingerprint(page.map { ($0.0, $0.1 - 20) })]
-        return (0..<count).map { frames[$0 % 2] }
+        let frames = try [0, 20, 40].map { shift in try fingerprint(page.map { ($0.0, $0.1 - CGFloat(shift)) }) }
+        return (0..<count).map { frames[$0 % frames.count] }
     }
 
     @Test func processesScreenThatKeepsChangingWithoutWaitingForItToSettle() throws {
         var tracker = ChangeTracker()
 
-        // 0.6초 동안은 바뀌는 중으로 보고 기다린다 → 0.6초에 처리 → 그 뒤 0.4초마다 처리하고 그사이 번역을 숨기지 않는다
+        // 0.6초 동안은 바뀌는 중으로 보고 기다린다 → 0.6초에 처리 → 그 뒤 0.25초마다 처리하고 그사이 번역을 숨기지 않는다
         let results = timedChanges(try playing(8), tracker: &tracker)
 
         #expect(
             results == [
-                .movedAway, .movedAway, .movedAway, .movedAway, .keepsChanging, .unchanged, .unchanged, .keepsChanging,
+                .movedAway, .movedAway, .movedAway, .movedAway, .keepsChanging, .unchanged, .keepsChanging, .unchanged,
             ])
         #expect(tracker.isKeepingUp)
     }
 
-    @Test func waitsUntilScrollingStopsBeforeProcessingScreenThatKeepsChanging() throws {
+    @Test func waitsAfterUserActionBeforeProcessingScreenThatKeepsChanging() throws {
         var tracker = ChangeTracker()
 
         // 0.45초에 마지막으로 스크롤 → 그 뒤 0.6초가 지난 1.05초에 처리
-        let results = timedChanges(try playing(9), tracker: &tracker, lastScroll: .milliseconds(450))
+        let results = timedChanges(try playing(9), tracker: &tracker, lastUserAction: .milliseconds(450))
 
         #expect(Array(results.prefix(7)) == Array(repeating: .movedAway, count: 7))
         #expect(Array(results.suffix(2)) == [.keepsChanging, .unchanged])
     }
 
-    @Test func scrollingWhileKeepingUpHidesTranslationsAgain() throws {
+    @Test func userActionWhileKeepingUpHidesTranslationsAgain() throws {
         let frames = try playing(6)
         let start = ContinuousClock.now
         var tracker = ChangeTracker()
         _ = timedChanges(Array(frames.prefix(5)), tracker: &tracker, from: start)
 
-        // 0.6초에 처리한 뒤 0.7초에 스크롤 → 0.75초 프레임은 지난 번역과 맞지 않는다
-        let afterScroll = tracker.observe(
-            frames[5], at: start + .milliseconds(750), lastScroll: start + .milliseconds(700))
+        // 0.6초에 처리한 뒤 0.7초에 클릭(링크 이동 등) → 0.75초 프레임은 지난 번역과 맞지 않는다
+        let afterAction = tracker.observe(
+            frames[5], at: start + .milliseconds(750), lastUserAction: start + .milliseconds(700))
 
-        #expect(afterScroll == .movedAway)
+        #expect(afterAction == .movedAway)
         #expect(!tracker.isKeepingUp)
     }
 
-    @Test func returnsToWaitingForStillScreenOnceScreenStopsChanging() throws {
+    @Test func keepsUpWhenVideoSceneStaysStillThenChanges() throws {
         let frames = try playing(5)
         var tracker = ChangeTracker()
 
-        // 0.6초에 처리한 화면에서 영상이 멈춤 → 0.6초 동안 멈춰 있으면 평소대로 바뀌면 숨긴다
-        let results = timedChanges(frames + Array(repeating: frames[4], count: 5) + [frames[1]], tracker: &tracker)
+        // 0.6초에 처리한 뒤 영상 장면이 1.5초 멈췄다가 바뀜(자막 변경 등) → 숨기지 않고 바로 처리한다.
+        // 멈췄다고 평소 동작으로 돌아가면 숨긴 채 0.6초를 다시 기다려 원문이 보였다 (TASK-031)
+        let results = timedChanges(frames + Array(repeating: frames[4], count: 10) + [frames[0]], tracker: &tracker)
 
         #expect(results[4] == .keepsChanging)
-        #expect(Array(results[5...9]) == Array(repeating: .unchanged, count: 5))
-        #expect(results[10] == .movedAway)
-        #expect(!tracker.isKeepingUp)
+        #expect(Array(results[5...14]) == Array(repeating: .unchanged, count: 10))
+        #expect(results[15] == .keepsChanging)
+        #expect(tracker.isKeepingUp)
     }
 
     @Test func processesPausedFrameWhileKeepingUp() throws {
         let frames = try playing(5)
-        let paused = try fingerprint(page.map { ($0.0, $0.1 - 40) })
+        let paused = try fingerprint(page.map { ($0.0, $0.1 - 60) })
         var tracker = ChangeTracker()
 
         // 계속 바뀌던 화면이 새 화면에서 멈추면 간격을 기다리지 않고 바로 처리한다
