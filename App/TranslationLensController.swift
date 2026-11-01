@@ -7,6 +7,7 @@ import TranslateCore
 @MainActor
 final class TranslationLensController {
     private static let languageKey = "TargetLanguage"
+    private static let transcriptVisibleKey = "TranscriptVisible"
 
     private let settings: EngineSettings
     private let overlay = SelectionOverlayController()
@@ -43,10 +44,14 @@ final class TranslationLensController {
 
         lens?.close()
         let session = LensSession(
-            frame: selection.globalRect, language: language, capturer: capturer,
+            frame: selection.globalRect, language: language,
+            showsTranscript: UserDefaults.standard.bool(forKey: Self.transcriptVisibleKey), capturer: capturer,
             engine: settings.engine ?? .claudeCode, memoryStore: memoryStore
         ) { [settings] in try await settings.makeProvider() }
         session.onLanguageChange = { [weak self] language in self?.language = language }
+        session.onTranscriptVisibilityChange = { visible in
+            UserDefaults.standard.set(visible, forKey: Self.transcriptVisibleKey)
+        }
         session.onClose = { [weak self, weak session] in
             if self?.lens === session {
                 self?.lens = nil
@@ -87,6 +92,7 @@ final class LensSession {
     private static let aboveLens = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)
 
     var onLanguageChange: ((TargetLanguage) -> Void)?
+    var onTranscriptVisibilityChange: ((Bool) -> Void)?
     var onClose: (() -> Void)?
 
     private let model: LensModel
@@ -96,6 +102,9 @@ final class LensSession {
     private let bodyPanel: LensPanel
     private let toolbarPanel: LensPanel
     private let handlePanel: LensPanel
+    /// 렌즈 옆 번역 기록 (도구 막대에서 켰을 때만 보인다)
+    private let transcriptPanel: LensPanel
+    private var transcript = TranslationTranscript()
 
     /// 선택된 번역 엔진을 만든다 (설정이 엔진별로 기억해 둔다)
     private let makeProvider: @MainActor () async throws -> any TranslationProvider
@@ -149,8 +158,8 @@ final class LensSession {
     private static let log = Logger(subsystem: "com.example.AITranslate", category: "pipeline")
 
     init(
-        frame: CGRect, language: TargetLanguage, capturer: ScreenCapturer, engine: TranslationEngine,
-        memoryStore: TranslationMemoryStore,
+        frame: CGRect, language: TargetLanguage, showsTranscript: Bool, capturer: ScreenCapturer,
+        engine: TranslationEngine, memoryStore: TranslationMemoryStore,
         makeProvider: @escaping @MainActor () async throws -> any TranslationProvider
     ) {
         self.frame = frame
@@ -159,7 +168,7 @@ final class LensSession {
         self.memoryStore = memoryStore
         memoryEngine = engine
         memory = memoryStore.load(engine)
-        let model = LensModel(language: language)
+        let model = LensModel(language: language, showsTranscript: showsTranscript)
         self.model = model
         bodyPanel = LensPanel(
             content: Self.hosting(LensBodyView(model: model)), level: .floating, passesMouseThrough: true)
@@ -169,9 +178,12 @@ final class LensSession {
             content: Self.hosting(LensToolbarView(model: model)), level: Self.aboveLens, passesMouseThrough: false)
         handlePanel = LensPanel(
             content: Self.hosting(LensResizeHandleView(model: model)), level: Self.aboveLens, passesMouseThrough: false)
+        transcriptPanel = LensPanel(
+            content: Self.hosting(LensTranscriptView(model: model)), level: Self.aboveLens, passesMouseThrough: false)
 
         model.onLanguageChange = { [weak self] language in self?.changeLanguage(to: language) }
         model.onPeekChange = { [weak self] peeking in self?.bodyPanel.alphaValue = peeking ? 0 : 1 }
+        model.onTranscriptVisibilityChange = { [weak self] visible in self?.showTranscript(visible) }
         model.onClose = { [weak self] in self?.close() }
         model.onMove = { [weak self] phase in
             self?.interact(phase) { start, drag in start.offsetBy(dx: drag.width, dy: drag.height) }
@@ -187,6 +199,9 @@ final class LensSession {
         layoutPanels()
         for panel in [bodyPanel, toolbarPanel, handlePanel] {
             panel.orderFrontRegardless()
+        }
+        if model.isTranscriptVisible {
+            transcriptPanel.orderFrontRegardless()
         }
         // 렌즈 본체는 마우스를 통과시키므로 스크롤은 아래 앱으로 간다. 전역 모니터로 보고 지난 번역을 바로 숨긴다.
         // 마우스 이벤트 모니터는 손쉬운 사용 권한이 필요 없다 (키 이벤트만 필요)
@@ -228,7 +243,7 @@ final class LensSession {
             NSWorkspace.shared.notificationCenter.removeObserver(appSwitchObserver)
         }
         appSwitchObserver = nil
-        for panel in [bodyPanel, toolbarPanel, handlePanel] {
+        for panel in [bodyPanel, toolbarPanel, handlePanel, transcriptPanel] {
             panel.orderOut(nil)
         }
         onClose?()
@@ -522,6 +537,7 @@ final class LensSession {
     private func refreshParagraphs() {
         let frames = LensGeometry.paragraphFrames(of: blocks, scale: scale, lensSize: frame.size)
         var contents = blocks.map { memory.content(of: $0, in: model.language) }
+        recordTranscript(contents)
         // 계속 바뀌는 화면에서만 잇는다. 스크롤한 페이지에서 이으면 다른 문단의 번역이 보인다.
         // 이을 번역이 있으면 생성 중 번역보다 먼저 보여준다 (자막 글이 바뀔 때마다 번역이 처음부터 다시 써지지 않게)
         if tracker.isKeepingUp {
@@ -539,6 +555,21 @@ final class LensSession {
                 id: index, content: content, frame: paragraphFrame,
                 fontSize: LensGeometry.fontSize(of: block, scale: scale),
                 colors: colors.indices.contains(index) ? colors[index] : .plain)
+        }
+    }
+
+    /// 원문과 맞는 번역(이어 보여주기·생성 중 글 제외)을 번역 기록에 더한다. 바뀌었을 때만 화면에 알린다
+    private func recordTranscript(_ contents: [BlockContent]) {
+        var changed = false
+        for (block, content) in zip(blocks, contents) {
+            if case .translated(let translation) = content,
+                transcript.record(source: block.text, translation: translation, in: model.language)
+            {
+                changed = true
+            }
+        }
+        if changed {
+            model.transcript = transcript
         }
     }
 
@@ -573,6 +604,16 @@ final class LensSession {
             CGRect(
                 x: frame.maxX - Self.handleSize - 2, y: frame.minY + 2, width: Self.handleSize, height: Self.handleSize),
             display: true)
+        transcriptPanel.setFrame(LensGeometry.transcriptFrame(for: frame, in: visibleFrame), display: true)
+    }
+
+    private func showTranscript(_ visible: Bool) {
+        if visible {
+            transcriptPanel.orderFrontRegardless()
+        } else {
+            transcriptPanel.orderOut(nil)
+        }
+        onTranscriptVisibilityChange?(visible)
     }
 
     private static func hosting(_ view: some View) -> NSView {

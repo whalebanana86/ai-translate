@@ -78,6 +78,31 @@ public enum LensGeometry {
         return CGRect(x: lens.minX, y: y, width: max(lens.width, minimumToolbarWidth), height: height)
     }
 
+    /// 번역 기록 패널 크기와 렌즈와의 간격
+    public static let transcriptWidth: CGFloat = 320
+    public static let minimumTranscriptHeight: CGFloat = 260
+    static let transcriptGap: CGFloat = 8
+
+    /// 번역 기록 패널 자리. 렌즈(도구 막대가 더 넓으면 도구 막대) 오른쪽, 공간이 없으면 렌즈 왼쪽, 둘 다 없으면 화면 오른쪽
+    /// 안쪽(렌즈와 겹침). 아래를 렌즈 아래와 맞추고 위로 렌즈 높이(최소 `minimumTranscriptHeight`)만큼 둔다: 자막 렌즈는
+    /// 얇으므로 패널이 영상 옆으로 올라간다. 화면 안으로 자른다.
+    public static func transcriptFrame(for lens: CGRect, in visibleFrame: CGRect) -> CGRect {
+        let width = min(transcriptWidth, visibleFrame.width)
+        let height = min(max(lens.height, minimumTranscriptHeight), visibleFrame.height)
+        let right = max(lens.maxX, lens.minX + minimumToolbarWidth) + transcriptGap
+        let left = lens.minX - transcriptGap - width
+        let x =
+            if right + width <= visibleFrame.maxX {
+                right
+            } else if left >= visibleFrame.minX {
+                left
+            } else {
+                visibleFrame.maxX - width
+            }
+        let y = min(max(lens.minY, visibleFrame.minY), visibleFrame.maxY - height)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
     /// 오른쪽 아래 모서리를 끌어 크기를 바꾼다. 왼쪽 위는 고정하고 최소 크기를 지킨다.
     /// `drag`는 전역 AppKit 좌표의 마우스 이동량이라 아래로 끌면 dy가 음수다.
     public static func resized(_ lens: CGRect, by drag: CGSize) -> CGRect {

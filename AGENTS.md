@@ -67,6 +67,10 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
     본체 창은 그림자를 끈다 (투명 창이라 번역 문단마다 그림자가 생긴다)
   - 도구 막대(렌즈 위, 공간이 없으면 안쪽): 끌어서 이동, 진행 표시, 언어, 원문 보기(본체를 잠시 투명하게), 복사, 닫기
   - 크기 조절 손잡이(오른쪽 아래). 이동·크기 조절 중에는 캡처를 멈추고 끝나면 변화 감지를 초기화한다
+  - 번역 기록 패널(도구 막대 "번역 기록" 버튼, 켜기/끄기는 UserDefaults `TranscriptVisible`): 렌즈가 원문과 맞게 보여준 번역을
+    나온 순서대로 쌓는다(`TranslationTranscript`: 같은 원문은 한 번, 자동 생성 자막처럼 앞 기록 뒤에 글이 붙으면 앞 기록을 고침,
+    최근 300개). 이어 보여주기·생성 중 글은 기록하지 않는다. 자리는 `LensGeometry.transcriptFrame`(렌즈 오른쪽 → 왼쪽 → 화면
+    오른쪽 안쪽, 아래를 렌즈에 맞추고 위로 최소 260). 맨 아래를 보고 있을 때만 새 기록을 따라 내려간다. 2026-11-02 사용자 요청
   - 감시: 캡처 → `ImageFingerprint`/`ChangeTracker`로 바뀐 뒤 멈췄을 때만 OCR (기준값은 측정으로 정함). 간격은
     `CaptureSchedule`: 평소 0.5초, 화면이 바뀌는 중 0.15초, 스크롤 중이면 마지막 스크롤 0.15초 뒤 바로
   - 계속 바뀌는 화면(재생 중인 영상, 움직이는 광고): 멈추기만 기다리면 인식하지 않는다(2026-11-02 사용자 보고). 사용자 동작
@@ -214,6 +218,7 @@ swift format format -i -r --configuration .swift-format App Packages/TranslateCo
 - 번역 기억(`TranslateCore/TranslationMemoryStore.swift`): 같은 글을 다시 번역하지 않도록 원문·번역을 엔진별로
   `~/Library/Application Support/AITranslate/TranslationMemory/<엔진>.json`에 저장한다(파일 권한 0600, 엔진별 최근 500개).
   렌즈를 만들 때 불러오고 닫을 때·엔진을 바꿀 때·앱을 끌 때 저장한다. 설정의 "번역 기억 지우기"로 파일과 열린 렌즈의 기억을 지운다
+- 번역 기록 패널의 기록은 메모리에만 두고 렌즈를 닫으면 사라진다 (파일로 저장하지 않는다)
 - 외부 엔진으로 처음 번역하기 전에 선택 영역의 내용이 어디로 전송되는지 알린다. 구현: `App/DataTransmissionNotice.swift`
   (엔진별 1회. 동의 여부는 UserDefaults `DataTransmissionNoticeAccepted`(Claude)·`DataTransmissionNoticeAccepted.codex`.
   로컬 엔진은 전송하지 않으므로 묻지 않는다)

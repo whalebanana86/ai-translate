@@ -126,4 +126,37 @@ struct LensGeometryTests {
         #expect(LensGeometry.isCutOff(block(x: 0, y: 566), imageHeight: 600))
         #expect(!LensGeometry.isCutOff(block(x: 0, y: 100, lines: 2), imageHeight: 600))
     }
+
+    // MARK: 번역 기록 패널
+
+    private let screen = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+
+    @Test func placesTranscriptRightOfLensAndRaisesItBesideThinSubtitleLens() {
+        let lens = CGRect(x: 200, y: 100, width: 800, height: 100)
+
+        #expect(LensGeometry.transcriptFrame(for: lens, in: screen) == CGRect(x: 1008, y: 100, width: 320, height: 260))
+    }
+
+    @Test func placesTranscriptLeftOfLensWhenRightSideIsFull() {
+        let lens = CGRect(x: 700, y: 100, width: 800, height: 400)
+
+        #expect(LensGeometry.transcriptFrame(for: lens, in: screen) == CGRect(x: 372, y: 100, width: 320, height: 400))
+    }
+
+    @Test func placesTranscriptInsideScreenEdgeWhenBothSidesAreFull() {
+        // 전체 화면 영상의 자막처럼 화면 너비를 거의 다 쓰는 렌즈
+        let lens = CGRect(x: 100, y: 60, width: 1400, height: 90)
+
+        #expect(LensGeometry.transcriptFrame(for: lens, in: screen) == CGRect(x: 1280, y: 60, width: 320, height: 260))
+    }
+
+    @Test func keepsTranscriptOnScreenAndClearOfWideToolbar() {
+        // 화면 위쪽 렌즈: 위로 넘치지 않게 내린다
+        let top = CGRect(x: 200, y: 900, width: 600, height: 80)
+        // 좁은 렌즈: 렌즈보다 넓은 도구 막대(300) 오른쪽에 둔다
+        let narrow = CGRect(x: 200, y: 100, width: 200, height: 100)
+
+        #expect(LensGeometry.transcriptFrame(for: top, in: screen) == CGRect(x: 808, y: 740, width: 320, height: 260))
+        #expect(LensGeometry.transcriptFrame(for: narrow, in: screen).minX == 508)
+    }
 }
