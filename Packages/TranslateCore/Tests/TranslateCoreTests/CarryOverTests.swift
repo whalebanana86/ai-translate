@@ -35,9 +35,9 @@ struct CarryOverTests {
         var carryOver = CarryOver()
         _ = carryOver.apply(to: [.translated("첫 자막")], boxes: [caption], at: start)
 
-        // 이어 보여준 번역도 처음 맞았던 때부터 2초까지만 보여준다 (느린 엔진에서 지난 자막 번역이 계속 남지 않게)
-        let carried = carryOver.apply(to: [.pending], boxes: [caption], at: start + .seconds(1))
-        let expired = carryOver.apply(to: [.pending], boxes: [caption], at: start + .milliseconds(2500))
+        // 이어 보여준 번역도 처음 맞았던 때부터 3초까지만 보여준다 (느린 엔진에서 지난 자막 번역이 계속 남지 않게)
+        let carried = carryOver.apply(to: [.pending], boxes: [caption], at: start + .milliseconds(2500))
+        let expired = carryOver.apply(to: [.pending], boxes: [caption], at: start + .milliseconds(3500))
 
         #expect(carried == [.translated("첫 자막")])
         #expect(expired == [.pending])

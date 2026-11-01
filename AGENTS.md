@@ -84,8 +84,11 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
     앱 전환은 `NSWorkspace.didActivateApplicationNotification`
   - 영상 자막(유튜브: 흰 글자, 줄마다 반투명 검은 상자, 가운데 정렬): 두 줄은 한 문단, 색은 어두운 바탕·흰 글자로 인식된다
     (`SubtitleRecognitionTests`). 자막은 글이 계속 바뀌므로(자동 생성 자막은 단어마다) 계속 바뀌는 화면에서는
-    새 번역이 나올 때까지 같은 자리에 보이던 번역을 이어 보여주고(`CarryOver`, 맞는 번역을 보여준 뒤 2초까지), 진행 중 요청을
+    새 번역이 나올 때까지 같은 자리에 보이던 번역을 이어 보여주고(`CarryOver`, 맞는 번역을 보여준 뒤 3초까지), 진행 중 요청을
     버리지 않는다. 자막 속도를 따라가는 엔진은 로컬뿐이다 (한 줄 약 0.35초. CLI 엔진은 요청당 7초 이상)
+  - 자막이 다 나온 뒤 번역(`TextSettling`, 2026-11-02 사용자 요청: 자동 생성 자막은 단어마다 번역해 문장 조각을 번역했다):
+    계속 바뀌는 화면에서는 글이 0.5초 넘게 그대로인 문단만 보낸다(인식 주기 때문에 실제 0.5~0.7초 뒤). 말이 쉬지 않고 이어져
+    다 나온 문단이 없으면 2초마다 그때까지 나온 글을 보낸다. 대가: 한 번에 나오는 자막도 그만큼 늦게 번역된다
   - 단계별 시간 기록(`Logger` subsystem `com.example.AITranslate`, category `pipeline`, info 단계, 숫자·엔진 이름만).
     보기: `/usr/bin/log stream --level info --predicate 'subsystem == "com.example.AITranslate"'` (zsh는 `log`가 내장 명령)
   - 지난 번역 숨김(`LensModel.isOutdated`): 렌즈 위 스크롤(전역 스크롤 모니터, 마우스 이벤트라 권한 불필요), 처리한 화면에서

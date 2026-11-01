@@ -136,6 +136,8 @@ final class LensSession {
     private var lastPartialRefresh: ContinuousClock.Instant?
     /// 계속 바뀌는 화면(자막)에서 새 번역이 나올 때까지 같은 자리의 번역을 이어 보여준다
     private var carryOver = CarryOver()
+    /// 계속 바뀌는 화면(자막)에서 글이 다 나온 뒤 번역한다
+    private var settling = TextSettling()
     /// 중간 글로 화면을 다시 그리는 최소 간격 (생성은 초당 약 100토큰)
     private static let partialRefreshInterval: Duration = .milliseconds(50)
     /// 이동·크기 조절 중이면 시작 시점의 마우스 위치와 렌즈 영역
@@ -299,6 +301,11 @@ final class LensSession {
             guard interaction == nil, !model.isPaused else { return }
             blocks = recognized
             colors = sampled
+            if tracker.isKeepingUp {
+                settling.observe(recognized.map(\.text), at: .now)
+            } else {
+                settling.reset()
+            }
             scale = selection.scale
             imageHeight = CGFloat(image.height)
             model.hasRecognized = true
@@ -432,6 +439,9 @@ final class LensSession {
         let missing = TranslationScheduling.prioritized(memory.missing(in: blocks, for: language)) {
             LensGeometry.isCutOff($0, imageHeight: height)
         }
+        // 자막처럼 글이 바뀌는 화면에서는 글이 다 나온 뒤 번역한다. 기다리는 동안은 같은 자리의 지난 번역을 이어 보여주고,
+        // 다음 인식 때 다시 고른다
+        let ready = tracker.isKeepingUp ? settling.ready(missing, text: \.text, at: .now) : missing
         guard !missing.isEmpty else {
             model.status = .watching
             if changeStartedAt != nil, !model.isOutdated {
@@ -440,9 +450,10 @@ final class LensSession {
             }
             return
         }
+        guard !ready.isEmpty else { return }
         let hasVisibleTranslation = blocks.contains { memory.translation(of: $0.text, in: language) != nil }
         let batch = TranslationScheduling.batch(
-            missing, hasVisibleTranslation: hasVisibleTranslation,
+            ready, hasVisibleTranslation: hasVisibleTranslation,
             preferredBatchSize: translator.provider.preferredBatchSize,
             firstBatchSize: translator.provider.firstBatchSize)
         model.status = .translating

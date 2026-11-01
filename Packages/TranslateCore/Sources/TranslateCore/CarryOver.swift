@@ -6,8 +6,9 @@ import CoreGraphics
 /// 번역 전으로 돌아가면 원문이 드러났다가 번역이 다시 나타나기를 되풀이한다.
 public struct CarryOver: Sendable {
     /// 화면의 원문과 맞는 번역을 마지막으로 보여준 뒤 이만큼 지나면 더 이어 보여주지 않는다.
-    /// 엔진이 자막보다 느리면(CLI 엔진) 지난 자막의 번역이 계속 남지 않게 한다
-    public static let lifetime: Duration = .seconds(2)
+    /// 엔진이 자막보다 느리면(CLI 엔진) 지난 자막의 번역이 계속 남지 않게 한다. 자막이 다 나오기를 최대 2초 기다리고
+    /// 번역에 약 0.35초가 더 걸리므로(`TextSettling`) 그동안 원문이 드러나지 않게 3초로 둔다
+    public static let lifetime: Duration = .seconds(3)
 
     private struct Shown {
         /// 원문 문단 영역. 이미지 픽셀 좌표
