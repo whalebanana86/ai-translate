@@ -184,6 +184,7 @@ final class LensSession {
         model.onLanguageChange = { [weak self] language in self?.changeLanguage(to: language) }
         model.onPeekChange = { [weak self] peeking in self?.bodyPanel.alphaValue = peeking ? 0 : 1 }
         model.onTranscriptVisibilityChange = { [weak self] visible in self?.showTranscript(visible) }
+        model.onPauseChange = { [weak self] paused in self?.pauseDidChange(paused) }
         model.onClose = { [weak self] in self?.close() }
         model.onMove = { [weak self] phase in
             self?.interact(phase) { start, drag in start.offsetBy(dx: drag.width, dy: drag.height) }
@@ -253,12 +254,16 @@ final class LensSession {
 
     private func tick() async {
         // 렌즈는 띄운 데스크톱에만 있다. 다른 데스크톱을 보는 동안에는 그 화면을 캡처하지 않는다
-        guard interaction == nil, bodyPanel.isOnActiveSpace, let selection = currentSelection() else { return }
+        guard interaction == nil, !model.isPaused, bodyPanel.isOnActiveSpace, let selection = currentSelection() else {
+            return
+        }
         let started = ContinuousClock.now
         do {
             let image = try await capturer.capture(selection)
             let captured = ContinuousClock.now
-            guard interaction == nil, bodyPanel.isOnActiveSpace, let fingerprint = ImageFingerprint(image) else {
+            guard interaction == nil, !model.isPaused, bodyPanel.isOnActiveSpace,
+                let fingerprint = ImageFingerprint(image)
+            else {
                 return
             }
             let change = tracker.observe(fingerprint, at: captured, lastUserAction: lastUserAction)
@@ -290,8 +295,8 @@ final class LensSession {
             }
             .value
             let colored = ContinuousClock.now
-            // 인식하는 사이에 옮겼다면 버리고 다음 화면을 기다린다
-            guard interaction == nil else { return }
+            // 인식하는 사이에 옮겼거나 일시정지했다면 버리고 다음 화면을 기다린다
+            guard interaction == nil, !model.isPaused else { return }
             blocks = recognized
             colors = sampled
             scale = selection.scale
@@ -421,7 +426,7 @@ final class LensSession {
     /// 기억에 없는 문단을 번역한다. 요청은 동시에 하나만 보내고, 끝나면 그사이 새로 생긴 문단을 이어서 보낸다.
     /// 엔진이 원하면(로컬 엔진은 1개) 나눠 보내 번역되는 대로 보여준다. 실패하면 다음 화면 변화나 언어 변경 때 다시 시도한다.
     private func translateIfNeeded() {
-        guard translateTask == nil, let translator else { return }
+        guard translateTask == nil, !model.isPaused, let translator else { return }
         let language = model.language
         let height = imageHeight
         let missing = TranslationScheduling.prioritized(memory.missing(in: blocks, for: language)) {
@@ -605,6 +610,19 @@ final class LensSession {
                 x: frame.maxX - Self.handleSize - 2, y: frame.minY + 2, width: Self.handleSize, height: Self.handleSize),
             display: true)
         transcriptPanel.setFrame(LensGeometry.transcriptFrame(for: frame, in: visibleFrame), display: true)
+    }
+
+    /// 일시정지하면 진행 중 요청을 멈추고 번역을 숨긴다. 다시 시작하면 지금 화면부터 다시 인식한다 (기억한 번역은 바로 보인다)
+    private func pauseDidChange(_ paused: Bool) {
+        if paused {
+            cancelTranslation()
+            model.isOutdated = true
+            model.status = .watching
+        } else {
+            tracker.reset()
+            changeStartedAt = .now
+            model.status = .recognizing
+        }
     }
 
     private func showTranscript(_ visible: Bool) {

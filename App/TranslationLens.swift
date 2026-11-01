@@ -43,10 +43,13 @@ final class LensModel {
     private(set) var language: TargetLanguage
     private(set) var isPeeking = false
     private(set) var isTranscriptVisible: Bool
+    /// 번역 일시정지. 캡처·인식·번역을 멈추고 번역을 그리지 않아 원문이 보인다
+    private(set) var isPaused = false
 
     @ObservationIgnored var onLanguageChange: ((TargetLanguage) -> Void)?
     @ObservationIgnored var onPeekChange: ((Bool) -> Void)?
     @ObservationIgnored var onTranscriptVisibilityChange: ((Bool) -> Void)?
+    @ObservationIgnored var onPauseChange: ((Bool) -> Void)?
     @ObservationIgnored var onClose: (() -> Void)?
     @ObservationIgnored var onMove: ((DragPhase) -> Void)?
     @ObservationIgnored var onResize: ((DragPhase) -> Void)?
@@ -65,6 +68,12 @@ final class LensModel {
     func setPeeking(_ peeking: Bool) {
         isPeeking = peeking
         onPeekChange?(peeking)
+    }
+
+    func setPaused(_ paused: Bool) {
+        guard paused != isPaused else { return }
+        isPaused = paused
+        onPauseChange?(paused)
     }
 
     func setTranscriptVisible(_ visible: Bool) {
@@ -215,6 +224,14 @@ struct LensToolbarView: View {
             }
             .labelsHidden()
             .fixedSize()
+            Button(
+                model.isPaused ? "번역 다시 시작" : "번역 일시정지",
+                systemImage: model.isPaused ? "play.fill" : "pause.fill"
+            ) {
+                model.setPaused(!model.isPaused)
+            }
+            .labelStyle(.iconOnly)
+            .help(model.isPaused ? "번역 다시 시작" : "번역 일시정지 (원문 보기, 인식·번역 멈춤)")
             Toggle(
                 isOn: Binding(get: { model.isTranscriptVisible }, set: { model.setTranscriptVisible($0) })
             ) {
@@ -246,6 +263,16 @@ struct LensToolbarView: View {
     }
 
     @ViewBuilder private var status: some View {
+        if model.isPaused {
+            Image(systemName: "pause.circle")
+                .foregroundStyle(.secondary)
+                .help("번역 일시정지됨")
+        } else {
+            activity
+        }
+    }
+
+    @ViewBuilder private var activity: some View {
         switch model.status {
         case .recognizing, .translating:
             ProgressView().controlSize(.mini)

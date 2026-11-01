@@ -28,7 +28,7 @@ public enum LensGeometry {
     public static let fontSizeRange: ClosedRange<CGFloat> = 11...24
     public static let minimumLensSize = CGSize(width: 160, height: 80)
     /// 렌즈가 좁아도 도구 막대 버튼이 다 보이는 너비
-    public static let minimumToolbarWidth: CGFloat = 300
+    public static let minimumToolbarWidth: CGFloat = 340
 
     /// 문단을 원문 위치(왼쪽 위)에 그대로 둔다. 번역이 길어도 다른 문단을 밀지 않는다.
     /// - 너비: 여러 줄 문단은 원문 너비(다단 레이아웃 유지). 한 줄 문단(제목·버튼)은 번역이 길어질 수 있으므로

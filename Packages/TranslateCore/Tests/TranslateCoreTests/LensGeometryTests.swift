@@ -153,10 +153,10 @@ struct LensGeometryTests {
     @Test func keepsTranscriptOnScreenAndClearOfWideToolbar() {
         // 화면 위쪽 렌즈: 위로 넘치지 않게 내린다
         let top = CGRect(x: 200, y: 900, width: 600, height: 80)
-        // 좁은 렌즈: 렌즈보다 넓은 도구 막대(300) 오른쪽에 둔다
+        // 좁은 렌즈: 렌즈보다 넓은 도구 막대(340) 오른쪽에 둔다
         let narrow = CGRect(x: 200, y: 100, width: 200, height: 100)
 
         #expect(LensGeometry.transcriptFrame(for: top, in: screen) == CGRect(x: 808, y: 740, width: 320, height: 260))
-        #expect(LensGeometry.transcriptFrame(for: narrow, in: screen).minX == 508)
+        #expect(LensGeometry.transcriptFrame(for: narrow, in: screen).minX == 548)
     }
 }
