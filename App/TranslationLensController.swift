@@ -7,6 +7,7 @@ import TranslateCore
 @MainActor
 final class TranslationLensController {
     private static let languageKey = "TargetLanguage"
+    private static let transcriptVisibleKey = "TranscriptVisible"
 
     private let settings: EngineSettings
     private let overlay = SelectionOverlayController()
@@ -43,10 +44,14 @@ final class TranslationLensController {
 
         lens?.close()
         let session = LensSession(
-            frame: selection.globalRect, language: language, capturer: capturer,
+            frame: selection.globalRect, language: language,
+            showsTranscript: UserDefaults.standard.bool(forKey: Self.transcriptVisibleKey), capturer: capturer,
             engine: settings.engine ?? .claudeCode, memoryStore: memoryStore
         ) { [settings] in try await settings.makeProvider() }
         session.onLanguageChange = { [weak self] language in self?.language = language }
+        session.onTranscriptVisibilityChange = { visible in
+            UserDefaults.standard.set(visible, forKey: Self.transcriptVisibleKey)
+        }
         session.onClose = { [weak self, weak session] in
             if self?.lens === session {
                 self?.lens = nil
@@ -87,6 +92,7 @@ final class LensSession {
     private static let aboveLens = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)
 
     var onLanguageChange: ((TargetLanguage) -> Void)?
+    var onTranscriptVisibilityChange: ((Bool) -> Void)?
     var onClose: (() -> Void)?
 
     private let model: LensModel
@@ -96,6 +102,9 @@ final class LensSession {
     private let bodyPanel: LensPanel
     private let toolbarPanel: LensPanel
     private let handlePanel: LensPanel
+    /// 렌즈 옆 번역 기록 (도구 막대에서 켰을 때만 보인다)
+    private let transcriptPanel: LensPanel
+    private var transcript = TranslationTranscript()
 
     /// 선택된 번역 엔진을 만든다 (설정이 엔진별로 기억해 둔다)
     private let makeProvider: @MainActor () async throws -> any TranslationProvider
@@ -125,11 +134,20 @@ final class LensSession {
     /// 생성 중인 번역(원문 → 지금까지 나온 글). 로컬 엔진이 생성하는 대로 대기 문단 자리에 그린다
     private var partials: [String: String] = [:]
     private var lastPartialRefresh: ContinuousClock.Instant?
+    /// 계속 바뀌는 화면(자막)에서 새 번역이 나올 때까지 같은 자리의 번역을 이어 보여준다
+    private var carryOver = CarryOver()
+    /// 계속 바뀌는 화면(자막)에서 글이 다 나온 뒤 번역한다
+    private var settling = TextSettling()
     /// 중간 글로 화면을 다시 그리는 최소 간격 (생성은 초당 약 100토큰)
     private static let partialRefreshInterval: Duration = .milliseconds(50)
     /// 이동·크기 조절 중이면 시작 시점의 마우스 위치와 렌즈 영역
     private var interaction: (mouse: CGPoint, frame: CGRect)?
     private var scrollMonitor: Any?
+    /// 클릭·앱 전환 감시. 계속 바뀌는 화면(영상) 처리를 끝내는 데 쓴다
+    private var clickMonitor: Any?
+    private var appSwitchObserver: (any NSObjectProtocol)?
+    /// 렌즈 아래가 다른 내용으로 바뀌었을 수 있는 마지막 사용자 동작(스크롤·클릭·앱 전환)
+    private var lastUserAction: ContinuousClock.Instant?
     /// 렌즈 위에서 마지막으로 스크롤한 때
     private var lastScroll: ContinuousClock.Instant?
     /// 마지막 캡처에서 화면이 바뀌는 중이었는지. 그동안은 자주 찍어 멈춤을 빨리 확인한다 (`CaptureSchedule`)
@@ -142,8 +160,8 @@ final class LensSession {
     private static let log = Logger(subsystem: "com.example.AITranslate", category: "pipeline")
 
     init(
-        frame: CGRect, language: TargetLanguage, capturer: ScreenCapturer, engine: TranslationEngine,
-        memoryStore: TranslationMemoryStore,
+        frame: CGRect, language: TargetLanguage, showsTranscript: Bool, capturer: ScreenCapturer,
+        engine: TranslationEngine, memoryStore: TranslationMemoryStore,
         makeProvider: @escaping @MainActor () async throws -> any TranslationProvider
     ) {
         self.frame = frame
@@ -152,7 +170,7 @@ final class LensSession {
         self.memoryStore = memoryStore
         memoryEngine = engine
         memory = memoryStore.load(engine)
-        let model = LensModel(language: language)
+        let model = LensModel(language: language, showsTranscript: showsTranscript)
         self.model = model
         bodyPanel = LensPanel(
             content: Self.hosting(LensBodyView(model: model)), level: .floating, passesMouseThrough: true)
@@ -162,9 +180,13 @@ final class LensSession {
             content: Self.hosting(LensToolbarView(model: model)), level: Self.aboveLens, passesMouseThrough: false)
         handlePanel = LensPanel(
             content: Self.hosting(LensResizeHandleView(model: model)), level: Self.aboveLens, passesMouseThrough: false)
+        transcriptPanel = LensPanel(
+            content: Self.hosting(LensTranscriptView(model: model)), level: Self.aboveLens, passesMouseThrough: false)
 
         model.onLanguageChange = { [weak self] language in self?.changeLanguage(to: language) }
         model.onPeekChange = { [weak self] peeking in self?.bodyPanel.alphaValue = peeking ? 0 : 1 }
+        model.onTranscriptVisibilityChange = { [weak self] visible in self?.showTranscript(visible) }
+        model.onPauseChange = { [weak self] paused in self?.pauseDidChange(paused) }
         model.onClose = { [weak self] in self?.close() }
         model.onMove = { [weak self] phase in
             self?.interact(phase) { start, drag in start.offsetBy(dx: drag.width, dy: drag.height) }
@@ -181,10 +203,22 @@ final class LensSession {
         for panel in [bodyPanel, toolbarPanel, handlePanel] {
             panel.orderFrontRegardless()
         }
+        if model.isTranscriptVisible {
+            transcriptPanel.orderFrontRegardless()
+        }
         // 렌즈 본체는 마우스를 통과시키므로 스크롤은 아래 앱으로 간다. 전역 모니터로 보고 지난 번역을 바로 숨긴다.
         // 마우스 이벤트 모니터는 손쉬운 사용 권한이 필요 없다 (키 이벤트만 필요)
         scrollMonitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] _ in
             MainActor.assumeIsolated { self?.didScroll() }
+        }
+        // 링크를 누르거나 다른 앱으로 바꾸면 영상 위에서처럼 번역을 계속 보여주지 않고 평소대로 숨긴다
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.didAct() }
+        }
+        appSwitchObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.didAct() }
         }
         loopTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -204,7 +238,15 @@ final class LensSession {
             NSEvent.removeMonitor(scrollMonitor)
         }
         scrollMonitor = nil
-        for panel in [bodyPanel, toolbarPanel, handlePanel] {
+        if let clickMonitor {
+            NSEvent.removeMonitor(clickMonitor)
+        }
+        clickMonitor = nil
+        if let appSwitchObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(appSwitchObserver)
+        }
+        appSwitchObserver = nil
+        for panel in [bodyPanel, toolbarPanel, handlePanel, transcriptPanel] {
             panel.orderOut(nil)
         }
         onClose?()
@@ -213,14 +255,21 @@ final class LensSession {
     // MARK: 감시와 인식
 
     private func tick() async {
-        guard interaction == nil, let selection = currentSelection() else { return }
+        // 렌즈는 띄운 데스크톱에만 있다. 다른 데스크톱을 보는 동안에는 그 화면을 캡처하지 않는다
+        guard interaction == nil, !model.isPaused, bodyPanel.isOnActiveSpace, let selection = currentSelection() else {
+            return
+        }
         let started = ContinuousClock.now
         do {
             let image = try await capturer.capture(selection)
             let captured = ContinuousClock.now
-            guard interaction == nil, let fingerprint = ImageFingerprint(image) else { return }
-            let change = tracker.observe(fingerprint)
-            isScreenChanging = change == .movedAway
+            guard interaction == nil, !model.isPaused, bodyPanel.isOnActiveSpace,
+                let fingerprint = ImageFingerprint(image)
+            else {
+                return
+            }
+            let change = tracker.observe(fingerprint, at: captured, lastUserAction: lastUserAction)
+            isScreenChanging = change == .movedAway || tracker.isKeepingUp
             switch change {
             case .unchanged:
                 // 스크롤했지만 화면이 그대로인 경우(페이지 끝 등). 스크롤이 멈추면 다시 보여준다
@@ -232,10 +281,11 @@ final class LensSession {
                 markChange()
                 model.isOutdated = true
                 return
-            case .settled:
+            case .settled, .keepsChanging:
                 break
             }
-            if translateTask == nil {
+            // 계속 바뀌는 화면(영상)은 0.4초마다 다시 인식하므로 진행 표시를 깜빡이지 않는다
+            if translateTask == nil, change == .settled || !model.hasRecognized {
                 model.status = .recognizing
             }
             // 엔진 준비를 기다리지 않고 바로 인식한다 (준비는 `prepareTranslator`가 따로 한다)
@@ -247,10 +297,15 @@ final class LensSession {
             }
             .value
             let colored = ContinuousClock.now
-            // 인식하는 사이에 옮겼다면 버리고 다음 화면을 기다린다
-            guard interaction == nil else { return }
+            // 인식하는 사이에 옮겼거나 일시정지했다면 버리고 다음 화면을 기다린다
+            guard interaction == nil, !model.isPaused else { return }
             blocks = recognized
             colors = sampled
+            if tracker.isKeepingUp {
+                settling.observe(recognized.map(\.text), at: .now)
+            } else {
+                settling.reset()
+            }
             scale = selection.scale
             imageHeight = CGFloat(image.height)
             model.hasRecognized = true
@@ -262,9 +317,10 @@ final class LensSession {
                 colors: Self.ms(colored - ocred), layout: Self.ms(.now - colored), sinceChange: sinceChange(),
                 sinceScroll: lastScroll.map { Self.ms(.now - $0) } ?? -1
             )
+            let trigger = change == .keepsChanging ? "계속 바뀜" : "멈춤"
             Self.log.info(
                 """
-                인식: 캡처 \(timings.capture, privacy: .public)ms · \
+                인식(\(trigger, privacy: .public)): 캡처 \(timings.capture, privacy: .public)ms · \
                 OCR \(timings.ocr, privacy: .public)ms · 색 \(timings.colors, privacy: .public)ms · \
                 배치 \(timings.layout, privacy: .public)ms · 문단 \(recognized.count, privacy: .public)개 \
                 (번역 필요 \(missing, privacy: .public)개) · 변화 후 \(timings.sinceChange, privacy: .public)ms · \
@@ -285,10 +341,16 @@ final class LensSession {
     }
 
     private func didScroll() {
-        guard frame.contains(NSEvent.mouseLocation) else { return }
+        guard bodyPanel.isOnActiveSpace, frame.contains(NSEvent.mouseLocation) else { return }
         markChange()
         lastScroll = .now
+        lastUserAction = .now
         model.isOutdated = true
+    }
+
+    private func didAct() {
+        guard bodyPanel.isOnActiveSpace else { return }
+        lastUserAction = .now
     }
 
     private func nextCaptureDelay() -> Duration {
@@ -371,12 +433,15 @@ final class LensSession {
     /// 기억에 없는 문단을 번역한다. 요청은 동시에 하나만 보내고, 끝나면 그사이 새로 생긴 문단을 이어서 보낸다.
     /// 엔진이 원하면(로컬 엔진은 1개) 나눠 보내 번역되는 대로 보여준다. 실패하면 다음 화면 변화나 언어 변경 때 다시 시도한다.
     private func translateIfNeeded() {
-        guard translateTask == nil, let translator else { return }
+        guard translateTask == nil, !model.isPaused, let translator else { return }
         let language = model.language
         let height = imageHeight
         let missing = TranslationScheduling.prioritized(memory.missing(in: blocks, for: language)) {
             LensGeometry.isCutOff($0, imageHeight: height)
         }
+        // 자막처럼 글이 바뀌는 화면에서는 글이 다 나온 뒤 번역한다. 기다리는 동안은 같은 자리의 지난 번역을 이어 보여주고,
+        // 다음 인식 때 다시 고른다
+        let ready = tracker.isKeepingUp ? settling.ready(missing, text: \.text, at: .now) : missing
         guard !missing.isEmpty else {
             model.status = .watching
             if changeStartedAt != nil, !model.isOutdated {
@@ -385,9 +450,10 @@ final class LensSession {
             }
             return
         }
+        guard !ready.isEmpty else { return }
         let hasVisibleTranslation = blocks.contains { memory.translation(of: $0.text, in: language) != nil }
         let batch = TranslationScheduling.batch(
-            missing, hasVisibleTranslation: hasVisibleTranslation,
+            ready, hasVisibleTranslation: hasVisibleTranslation,
             preferredBatchSize: translator.provider.preferredBatchSize,
             firstBatchSize: translator.provider.firstBatchSize)
         model.status = .translating
@@ -428,9 +494,10 @@ final class LensSession {
         }
     }
 
-    /// 진행 중인 요청의 문단이 대부분 화면에서 지나갔으면 요청을 버리고 지금 화면부터 번역하게 한다
+    /// 진행 중인 요청의 문단이 대부분 화면에서 지나갔으면 요청을 버리고 지금 화면부터 번역하게 한다.
+    /// 계속 바뀌는 화면(자막)에서는 버리지 않는다: 글이 번역보다 빨리 바뀌면 번역이 하나도 끝나지 않는다
     private func abandonTranslationIfPassed() {
-        guard translateTask != nil,
+        guard translateTask != nil, !tracker.isKeepingUp,
             TranslationScheduling.shouldAbandon(inFlight: inFlightTexts, visible: Set(blocks.map(\.text)))
         else { return }
         Self.log.info("지나간 화면 번역 취소: 문단 \(self.inFlightTexts.count, privacy: .public)개")
@@ -472,6 +539,8 @@ final class LensSession {
         translateGeneration += 1
         inFlightTexts = []
         partials = [:]
+        // 언어·엔진이 바뀌었거나 기억을 지웠으면 지난 번역을 잇지 않는다
+        carryOver.reset()
     }
 
     private func changeLanguage(to language: TargetLanguage) {
@@ -483,9 +552,18 @@ final class LensSession {
 
     private func refreshParagraphs() {
         let frames = LensGeometry.paragraphFrames(of: blocks, scale: scale, lensSize: frame.size)
+        var contents = blocks.map { memory.content(of: $0, in: model.language) }
+        recordTranscript(contents)
+        // 계속 바뀌는 화면에서만 잇는다. 스크롤한 페이지에서 이으면 다른 문단의 번역이 보인다.
+        // 이을 번역이 있으면 생성 중 번역보다 먼저 보여준다 (자막 글이 바뀔 때마다 번역이 처음부터 다시 써지지 않게)
+        if tracker.isKeepingUp {
+            contents = carryOver.apply(to: contents, boxes: blocks.map(\.boundingBox), at: .now)
+        } else {
+            carryOver.reset()
+        }
         model.paragraphs = zip(blocks, frames).enumerated().map { index, pair in
             let (block, paragraphFrame) = pair
-            var content = memory.content(of: block, in: model.language)
+            var content = contents[index]
             if case .pending = content, let partial = partials[block.text], !partial.isEmpty {
                 content = .translated(partial)
             }
@@ -493,6 +571,21 @@ final class LensSession {
                 id: index, content: content, frame: paragraphFrame,
                 fontSize: LensGeometry.fontSize(of: block, scale: scale),
                 colors: colors.indices.contains(index) ? colors[index] : .plain)
+        }
+    }
+
+    /// 원문과 맞는 번역(이어 보여주기·생성 중 글 제외)을 번역 기록에 더한다. 바뀌었을 때만 화면에 알린다
+    private func recordTranscript(_ contents: [BlockContent]) {
+        var changed = false
+        for (block, content) in zip(blocks, contents) {
+            if case .translated(let translation) = content,
+                transcript.record(source: block.text, translation: translation, in: model.language)
+            {
+                changed = true
+            }
+        }
+        if changed {
+            model.transcript = transcript
         }
     }
 
@@ -527,6 +620,29 @@ final class LensSession {
             CGRect(
                 x: frame.maxX - Self.handleSize - 2, y: frame.minY + 2, width: Self.handleSize, height: Self.handleSize),
             display: true)
+        transcriptPanel.setFrame(LensGeometry.transcriptFrame(for: frame, in: visibleFrame), display: true)
+    }
+
+    /// 일시정지하면 진행 중 요청을 멈추고 번역을 숨긴다. 다시 시작하면 지금 화면부터 다시 인식한다 (기억한 번역은 바로 보인다)
+    private func pauseDidChange(_ paused: Bool) {
+        if paused {
+            cancelTranslation()
+            model.isOutdated = true
+            model.status = .watching
+        } else {
+            tracker.reset()
+            changeStartedAt = .now
+            model.status = .recognizing
+        }
+    }
+
+    private func showTranscript(_ visible: Bool) {
+        if visible {
+            transcriptPanel.orderFrontRegardless()
+        } else {
+            transcriptPanel.orderOut(nil)
+        }
+        onTranscriptVisibilityChange?(visible)
     }
 
     private static func hosting(_ view: some View) -> NSView {

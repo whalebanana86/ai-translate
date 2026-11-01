@@ -38,17 +38,25 @@ final class LensModel {
     var hasRecognized = false
     /// 보여주던 번역이 지금 화면과 맞지 않음(스크롤·이동 중). 다시 인식할 때까지 번역을 그리지 않는다
     var isOutdated = false
+    /// 렌즈 옆 패널에 보여줄 번역 기록
+    var transcript = TranslationTranscript()
     private(set) var language: TargetLanguage
     private(set) var isPeeking = false
+    private(set) var isTranscriptVisible: Bool
+    /// 번역 일시정지. 캡처·인식·번역을 멈추고 번역을 그리지 않아 원문이 보인다
+    private(set) var isPaused = false
 
     @ObservationIgnored var onLanguageChange: ((TargetLanguage) -> Void)?
     @ObservationIgnored var onPeekChange: ((Bool) -> Void)?
+    @ObservationIgnored var onTranscriptVisibilityChange: ((Bool) -> Void)?
+    @ObservationIgnored var onPauseChange: ((Bool) -> Void)?
     @ObservationIgnored var onClose: (() -> Void)?
     @ObservationIgnored var onMove: ((DragPhase) -> Void)?
     @ObservationIgnored var onResize: ((DragPhase) -> Void)?
 
-    init(language: TargetLanguage) {
+    init(language: TargetLanguage, showsTranscript: Bool) {
         self.language = language
+        isTranscriptVisible = showsTranscript
     }
 
     func select(_ language: TargetLanguage) {
@@ -60,6 +68,17 @@ final class LensModel {
     func setPeeking(_ peeking: Bool) {
         isPeeking = peeking
         onPeekChange?(peeking)
+    }
+
+    func setPaused(_ paused: Bool) {
+        guard paused != isPaused else { return }
+        isPaused = paused
+        onPauseChange?(paused)
+    }
+
+    func setTranscriptVisible(_ visible: Bool) {
+        isTranscriptVisible = visible
+        onTranscriptVisibilityChange?(visible)
     }
 
     /// 번역이 끝난 문단(번역할 필요 없는 문단은 원문)을 빈 줄로 이어 붙인 글
@@ -205,6 +224,22 @@ struct LensToolbarView: View {
             }
             .labelsHidden()
             .fixedSize()
+            Button(
+                model.isPaused ? "번역 다시 시작" : "번역 일시정지",
+                systemImage: model.isPaused ? "play.fill" : "pause.fill"
+            ) {
+                model.setPaused(!model.isPaused)
+            }
+            .labelStyle(.iconOnly)
+            .help(model.isPaused ? "번역 다시 시작" : "번역 일시정지 (원문 보기, 인식·번역 멈춤)")
+            Toggle(
+                isOn: Binding(get: { model.isTranscriptVisible }, set: { model.setTranscriptVisible($0) })
+            ) {
+                Label("번역 기록", systemImage: "list.bullet.rectangle")
+            }
+            .toggleStyle(.button)
+            .labelStyle(.iconOnly)
+            .help("번역 기록을 렌즈 옆에 보기")
             Toggle("원문", isOn: Binding(get: { model.isPeeking }, set: { model.setPeeking($0) }))
                 .toggleStyle(.button)
                 .help("렌즈를 잠시 걷어 원문 보기")
@@ -228,6 +263,16 @@ struct LensToolbarView: View {
     }
 
     @ViewBuilder private var status: some View {
+        if model.isPaused {
+            Image(systemName: "pause.circle")
+                .foregroundStyle(.secondary)
+                .help("번역 일시정지됨")
+        } else {
+            activity
+        }
+    }
+
+    @ViewBuilder private var activity: some View {
         switch model.status {
         case .recognizing, .translating:
             ProgressView().controlSize(.mini)
@@ -245,6 +290,78 @@ struct LensToolbarView: View {
     private func copy() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(model.copyText, forType: .string)
+    }
+}
+
+/// 렌즈 옆 번역 기록. 나온 순서대로 쌓고, 맨 아래를 보고 있으면 새 기록을 따라간다 (위로 올려 읽는 중에는 그대로 둔다).
+struct LensTranscriptView: View {
+    let model: LensModel
+    /// 맨 아래를 보고 있는지. 이때만 새 기록으로 따라 내려간다
+    @State private var isFollowing = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Text("번역 기록").font(.headline)
+                Spacer()
+                Button("전체 복사", systemImage: "doc.on.doc", action: copy)
+                    .help("번역 기록 전체 복사")
+                    .disabled(model.transcript.entries.isEmpty)
+                Button("닫기", systemImage: "xmark") { model.setTranscriptVisible(false) }
+                    .help("번역 기록 닫기")
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            Divider()
+            if model.transcript.entries.isEmpty {
+                Text("번역한 내용이 여기에 차례로 쌓입니다.")
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                entries
+            }
+        }
+        .controlSize(.small)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var entries: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(model.transcript.entries) { entry in
+                        Text(entry.translation)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id(entry.id)
+                    }
+                }
+                .padding(10)
+                .textSelection(.enabled)
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 24
+            } action: { _, atBottom in
+                isFollowing = atBottom
+            }
+            .onChange(of: model.transcript.entries.last) { _, last in
+                guard isFollowing, let last else { return }
+                proxy.scrollTo(last.id, anchor: .bottom)
+            }
+            .onAppear {
+                if let last = model.transcript.entries.last {
+                    proxy.scrollTo(last.id, anchor: .bottom)
+                }
+            }
+        }
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(model.transcript.text, forType: .string)
     }
 }
 
@@ -277,7 +394,8 @@ final class LensPanel: NSPanel {
             contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false
         self.level = level
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // 렌즈를 띄운 데스크톱(전체 화면 앱 포함)에만 둔다. 모든 데스크톱에 두면 데스크톱을 바꿀 때마다 따라온다
+        collectionBehavior = [.fullScreenAuxiliary]
         hidesOnDeactivate = false
         isOpaque = false
         backgroundColor = .clear
