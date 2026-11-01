@@ -23,7 +23,8 @@ final class SettingsWindowController {
             })
         window.center()
         self.window = window
-        NSApp.activate()
+        // 창을 먼저 지금 데스크톱에 띄운다. 앱부터 활성화하면 macOS가 앱 창(렌즈)이 있는 다른 데스크톱으로 넘어갈 수 있다
         window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
     }
 }

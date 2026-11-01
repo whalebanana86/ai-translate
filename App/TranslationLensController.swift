@@ -125,6 +125,8 @@ final class LensSession {
     /// 생성 중인 번역(원문 → 지금까지 나온 글). 로컬 엔진이 생성하는 대로 대기 문단 자리에 그린다
     private var partials: [String: String] = [:]
     private var lastPartialRefresh: ContinuousClock.Instant?
+    /// 계속 바뀌는 화면(자막)에서 새 번역이 나올 때까지 같은 자리의 번역을 이어 보여준다
+    private var carryOver = CarryOver()
     /// 중간 글로 화면을 다시 그리는 최소 간격 (생성은 초당 약 100토큰)
     private static let partialRefreshInterval: Duration = .milliseconds(50)
     /// 이동·크기 조절 중이면 시작 시점의 마우스 위치와 렌즈 영역
@@ -213,14 +215,17 @@ final class LensSession {
     // MARK: 감시와 인식
 
     private func tick() async {
-        guard interaction == nil, let selection = currentSelection() else { return }
+        // 렌즈는 띄운 데스크톱에만 있다. 다른 데스크톱을 보는 동안에는 그 화면을 캡처하지 않는다
+        guard interaction == nil, bodyPanel.isOnActiveSpace, let selection = currentSelection() else { return }
         let started = ContinuousClock.now
         do {
             let image = try await capturer.capture(selection)
             let captured = ContinuousClock.now
-            guard interaction == nil, let fingerprint = ImageFingerprint(image) else { return }
-            let change = tracker.observe(fingerprint)
-            isScreenChanging = change == .movedAway
+            guard interaction == nil, bodyPanel.isOnActiveSpace, let fingerprint = ImageFingerprint(image) else {
+                return
+            }
+            let change = tracker.observe(fingerprint, at: captured, lastScroll: lastScroll)
+            isScreenChanging = change == .movedAway || tracker.isKeepingUp
             switch change {
             case .unchanged:
                 // 스크롤했지만 화면이 그대로인 경우(페이지 끝 등). 스크롤이 멈추면 다시 보여준다
@@ -232,10 +237,11 @@ final class LensSession {
                 markChange()
                 model.isOutdated = true
                 return
-            case .settled:
+            case .settled, .keepsChanging:
                 break
             }
-            if translateTask == nil {
+            // 계속 바뀌는 화면(영상)은 0.4초마다 다시 인식하므로 진행 표시를 깜빡이지 않는다
+            if translateTask == nil, change == .settled || !model.hasRecognized {
                 model.status = .recognizing
             }
             // 엔진 준비를 기다리지 않고 바로 인식한다 (준비는 `prepareTranslator`가 따로 한다)
@@ -262,9 +268,10 @@ final class LensSession {
                 colors: Self.ms(colored - ocred), layout: Self.ms(.now - colored), sinceChange: sinceChange(),
                 sinceScroll: lastScroll.map { Self.ms(.now - $0) } ?? -1
             )
+            let trigger = change == .keepsChanging ? "계속 바뀜" : "멈춤"
             Self.log.info(
                 """
-                인식: 캡처 \(timings.capture, privacy: .public)ms · \
+                인식(\(trigger, privacy: .public)): 캡처 \(timings.capture, privacy: .public)ms · \
                 OCR \(timings.ocr, privacy: .public)ms · 색 \(timings.colors, privacy: .public)ms · \
                 배치 \(timings.layout, privacy: .public)ms · 문단 \(recognized.count, privacy: .public)개 \
                 (번역 필요 \(missing, privacy: .public)개) · 변화 후 \(timings.sinceChange, privacy: .public)ms · \
@@ -285,7 +292,7 @@ final class LensSession {
     }
 
     private func didScroll() {
-        guard frame.contains(NSEvent.mouseLocation) else { return }
+        guard bodyPanel.isOnActiveSpace, frame.contains(NSEvent.mouseLocation) else { return }
         markChange()
         lastScroll = .now
         model.isOutdated = true
@@ -428,9 +435,10 @@ final class LensSession {
         }
     }
 
-    /// 진행 중인 요청의 문단이 대부분 화면에서 지나갔으면 요청을 버리고 지금 화면부터 번역하게 한다
+    /// 진행 중인 요청의 문단이 대부분 화면에서 지나갔으면 요청을 버리고 지금 화면부터 번역하게 한다.
+    /// 계속 바뀌는 화면(자막)에서는 버리지 않는다: 글이 번역보다 빨리 바뀌면 번역이 하나도 끝나지 않는다
     private func abandonTranslationIfPassed() {
-        guard translateTask != nil,
+        guard translateTask != nil, !tracker.isKeepingUp,
             TranslationScheduling.shouldAbandon(inFlight: inFlightTexts, visible: Set(blocks.map(\.text)))
         else { return }
         Self.log.info("지나간 화면 번역 취소: 문단 \(self.inFlightTexts.count, privacy: .public)개")
@@ -472,6 +480,8 @@ final class LensSession {
         translateGeneration += 1
         inFlightTexts = []
         partials = [:]
+        // 언어·엔진이 바뀌었거나 기억을 지웠으면 지난 번역을 잇지 않는다
+        carryOver.reset()
     }
 
     private func changeLanguage(to language: TargetLanguage) {
@@ -483,9 +493,17 @@ final class LensSession {
 
     private func refreshParagraphs() {
         let frames = LensGeometry.paragraphFrames(of: blocks, scale: scale, lensSize: frame.size)
+        var contents = blocks.map { memory.content(of: $0, in: model.language) }
+        // 계속 바뀌는 화면에서만 잇는다. 스크롤한 페이지에서 이으면 다른 문단의 번역이 보인다.
+        // 이을 번역이 있으면 생성 중 번역보다 먼저 보여준다 (자막 글이 바뀔 때마다 번역이 처음부터 다시 써지지 않게)
+        if tracker.isKeepingUp {
+            contents = carryOver.apply(to: contents, boxes: blocks.map(\.boundingBox), at: .now)
+        } else {
+            carryOver.reset()
+        }
         model.paragraphs = zip(blocks, frames).enumerated().map { index, pair in
             let (block, paragraphFrame) = pair
-            var content = memory.content(of: block, in: model.language)
+            var content = contents[index]
             if case .pending = content, let partial = partials[block.text], !partial.isEmpty {
                 content = .translated(partial)
             }

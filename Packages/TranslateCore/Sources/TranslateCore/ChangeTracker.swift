@@ -32,6 +32,7 @@ public struct ImageFingerprint: Equatable, Sendable {
 /// 렌즈 아래 화면이 바뀐 뒤 멈췄을 때만 OCR하도록 거르고, 보여주던 번역이 화면과 맞지 않게 됐는지 알려준다.
 ///
 /// 스크롤하는 동안 매번 OCR하지 않고, 같은 화면으로 돌아오면 다시 처리하지 않는다.
+/// 영상처럼 멈추지 않는 화면은 잠시 기다린 뒤 바뀌는 중에도 일정 간격으로 처리한다.
 public struct ChangeTracker: Sendable {
     /// 프레임 하나를 본 결과
     public enum Change: Equatable, Sendable {
@@ -41,6 +42,8 @@ public struct ChangeTracker: Sendable {
         case movedAway
         /// 바뀐 뒤 멈췄다. 이 화면을 처리한다
         case settled
+        /// 영상처럼 멈추지 않고 계속 바뀐다. 멈추기를 기다리지 않고 이 화면을 처리한다
+        case keepsChanging
     }
 
     /// 이보다 작은 차이는 같은 화면으로 본다. 측정값(64×64): 4px 스크롤 0.018, 단어 하나 변경 0.0010,
@@ -49,28 +52,84 @@ public struct ChangeTracker: Sendable {
     /// 처리한 화면과 이보다 많이 다르면 보여주던 번역을 숨긴다. 스크롤(4px 0.018)은 잡고 단어 하나 변경(0.0010)은
     /// 넘기지 않는다: 단어가 바뀐 문단만 다시 번역하면 되고, 작게 움직이는 광고 등이 있어도 번역이 계속 보이게 한다
     public static let movedAwayThreshold = 0.005
+    /// 스크롤 없이 이만큼 계속 바뀌면 멈추지 않는 화면(영상·움직이는 광고)으로 본다. 스크롤은 이벤트로 따로 기다리므로
+    /// 마지막 스크롤 뒤부터 잰다. 화면이 이만큼 멈춰 있으면 평소처럼 멈춘 뒤 처리하는 동작으로 돌아간다
+    public static let keepsChangingAfter: Duration = .milliseconds(600)
+    /// 계속 바뀌는 화면을 다시 처리하는 간격. 자막처럼 글이 바뀌면 이 간격 안에 다시 인식한다
+    public static let keepsChangingInterval: Duration = .milliseconds(400)
 
     private var previous: ImageFingerprint?
     private var processed: ImageFingerprint?
+    /// 프레임이 직전 프레임과 계속 다르기 시작한 때와 계속 같기 시작한 때
+    private var changingSince: ContinuousClock.Instant?
+    private var stillSince: ContinuousClock.Instant?
+    /// 계속 바뀌는 화면을 마지막으로 처리한 때. 화면이 한동안 멈추거나 스크롤하면 지운다
+    private var lastKeptUp: ContinuousClock.Instant?
 
     public init() {}
 
+    /// 계속 바뀌는 화면을 따라 처리하는 중인지. 이때는 화면이 바뀌어도 다음 처리까지 보여주던 번역을 그대로 둔다
+    public var isKeepingUp: Bool { lastKeptUp != nil }
+
     /// 새 프레임을 받는다. 직전 프레임과 같고(멈춤) 마지막으로 처리한 화면과 다르면 `settled`이며, 이 화면을 처리한 것으로
     /// 기록한다. 아직 아무것도 처리하지 않았으면 보여주던 번역도 없으므로 `movedAway`다.
-    public mutating func observe(_ frame: ImageFingerprint) -> Change {
+    /// 스크롤 없이 `keepsChangingAfter` 동안 멈추지 않으면 `keepsChanging`으로 처리하고, 그 뒤로는
+    /// `keepsChangingInterval`마다 처리한다.
+    public mutating func observe(
+        _ frame: ImageFingerprint, at now: ContinuousClock.Instant = .now, lastScroll: ContinuousClock.Instant? = nil
+    ) -> Change {
         defer { previous = frame }
+        let isStill = previous.map { frame.difference(to: $0) < Self.threshold } ?? false
+        if isStill {
+            changingSince = nil
+            stillSince = stillSince ?? now
+        } else {
+            stillSince = nil
+            changingSince = changingSince ?? now
+        }
+        if let lastKeptUp {
+            let stoppedChanging = stillSince.map { now - $0 >= Self.keepsChangingAfter } ?? false
+            let scrolled = lastScroll.map { $0 > lastKeptUp } ?? false
+            if stoppedChanging || scrolled {
+                self.lastKeptUp = nil
+            }
+        }
+
         let differsFromProcessed = processed.map { frame.difference(to: $0) >= Self.threshold } ?? true
-        if differsFromProcessed, let previous, frame.difference(to: previous) < Self.threshold {
+        if differsFromProcessed, isStill {
             processed = frame
+            if isKeepingUp {
+                lastKeptUp = now
+            }
             return .settled
+        }
+        if differsFromProcessed, isDueToKeepUp(at: now, lastScroll: lastScroll) {
+            processed = frame
+            lastKeptUp = now
+            return .keepsChanging
+        }
+        if isKeepingUp {
+            return .unchanged
         }
         let movedAway = processed.map { frame.difference(to: $0) >= Self.movedAwayThreshold } ?? true
         return movedAway ? .movedAway : .unchanged
+    }
+
+    private func isDueToKeepUp(at now: ContinuousClock.Instant, lastScroll: ContinuousClock.Instant?) -> Bool {
+        if let lastKeptUp {
+            return now - lastKeptUp >= Self.keepsChangingInterval
+        }
+        guard let changingSince else { return false }
+        let waitStart = max(changingSince, lastScroll ?? changingSince)
+        return now - waitStart >= Self.keepsChangingAfter
     }
 
     /// 렌즈를 옮기거나 크기를 바꾸면 처음부터 다시 본다.
     public mutating func reset() {
         previous = nil
         processed = nil
+        changingSince = nil
+        stillSince = nil
+        lastKeptUp = nil
     }
 }

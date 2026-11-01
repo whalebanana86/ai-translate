@@ -53,6 +53,10 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
 - 전역 단축키: Carbon `RegisterEventHotKey` 기반(KeyboardShortcuts 패키지). `NSEvent` 전역 모니터는 손쉬운 사용 권한이 필요하므로 쓰지 않는다
   - 기본값 ⌘⇧1 (`KeyboardShortcuts.Name.translateRegion`, `App/AppDelegate.swift`). 패키지 3.1.0
 - 번역 렌즈: 포커스를 빼앗지 않는 패널 세 개. 화면: `App/TranslationLens.swift`, 동작: `App/TranslationLensController.swift`
+  - 렌즈 창은 띄운 데스크톱(Space, 전체 화면 앱 포함)에만 둔다(`.fullScreenAuxiliary`만, `.canJoinAllSpaces`는 쓰지 않음:
+    데스크톱을 바꿀 때마다 따라왔다. 2026-11-02 사용자 요청). 다른 데스크톱을 보는 동안에는 캡처·스크롤 감시를 멈춘다
+    (`isOnActiveSpace`). 설정 창은 지금 데스크톱에 먼저 띄운 뒤 앱을 활성화한다 (먼저 활성화하면 렌즈가 있는 데스크톱으로
+    넘어갈 수 있다)
   - 본체: 마우스 통과(`ignoresMouseEvents`)라 스크롤·클릭은 아래 페이지로 간다. 이 앱 창은 캡처에서 빠지므로 본체가 덮어도
     아래 원문이 캡처된다
   - 번역은 원문 문단의 왼쪽 위에 그대로 그리고 다른 문단을 밀지 않는다(`LensGeometry.paragraphFrames`). 여러 줄 문단은 원문 너비,
@@ -65,6 +69,13 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
   - 크기 조절 손잡이(오른쪽 아래). 이동·크기 조절 중에는 캡처를 멈추고 끝나면 변화 감지를 초기화한다
   - 감시: 캡처 → `ImageFingerprint`/`ChangeTracker`로 바뀐 뒤 멈췄을 때만 OCR (기준값은 측정으로 정함). 간격은
     `CaptureSchedule`: 평소 0.5초, 화면이 바뀌는 중 0.15초, 스크롤 중이면 마지막 스크롤 0.15초 뒤 바로
+  - 계속 바뀌는 화면(재생 중인 영상, 움직이는 광고): 멈추기만 기다리면 인식하지 않는다(2026-11-02 사용자 보고). 스크롤 없이
+    0.6초 동안 계속 바뀌면 바뀌는 중에도 인식하고(`ChangeTracker.Change.keepsChanging`), 그 뒤 0.4초마다 다시 인식한다. 이때는
+    화면이 바뀌어도 번역을 숨기지 않고 다음 인식이 문단을 바꾼다. 스크롤하거나 화면이 0.6초 멈추면 평소 동작으로 돌아간다
+  - 영상 자막(유튜브: 흰 글자, 줄마다 반투명 검은 상자, 가운데 정렬): 두 줄은 한 문단, 색은 어두운 바탕·흰 글자로 인식된다
+    (`SubtitleRecognitionTests`). 자막은 글이 계속 바뀌므로(자동 생성 자막은 단어마다) 계속 바뀌는 화면에서는
+    새 번역이 나올 때까지 같은 자리에 보이던 번역을 이어 보여주고(`CarryOver`, 맞는 번역을 보여준 뒤 2초까지), 진행 중 요청을
+    버리지 않는다. 자막 속도를 따라가는 엔진은 로컬뿐이다 (한 줄 약 0.35초. CLI 엔진은 요청당 7초 이상)
   - 단계별 시간 기록(`Logger` subsystem `com.example.AITranslate`, category `pipeline`, info 단계, 숫자·엔진 이름만).
     보기: `/usr/bin/log stream --level info --predicate 'subsystem == "com.example.AITranslate"'` (zsh는 `log`가 내장 명령)
   - 지난 번역 숨김(`LensModel.isOutdated`): 렌즈 위 스크롤(전역 스크롤 모니터, 마우스 이벤트라 권한 불필요), 처리한 화면에서

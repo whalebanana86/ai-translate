@@ -277,7 +277,8 @@ final class LensPanel: NSPanel {
             contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false
         self.level = level
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // 렌즈를 띄운 데스크톱(전체 화면 앱 포함)에만 둔다. 모든 데스크톱에 두면 데스크톱을 바꿀 때마다 따라온다
+        collectionBehavior = [.fullScreenAuxiliary]
         hidesOnDeactivate = false
         isOpaque = false
         backgroundColor = .clear
