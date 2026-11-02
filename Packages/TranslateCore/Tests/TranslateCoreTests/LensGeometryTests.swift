@@ -223,6 +223,55 @@ struct LensGeometryTests {
         #expect(evened >= 532 && evened < 533)
     }
 
+    // MARK: 이중 자막
+
+    @Test func putsBilingualCaptionAboveTallestCaption() {
+        // 렌즈 600×300pt, 배율 2: 한 줄 자막 (200~400, 250~270)pt. 이 자리에 두 줄 자막(92px = 46pt)이 나온 적이 있다
+        let caption = block(x: 400, y: 500, width: 400, lineHeight: 40)
+        let anchor = CaptionAnchor(centerX: 600, bottom: 540, lineHeight: 40, height: 92)
+
+        let frame = LensGeometry.paragraphFrames(
+            of: [caption], scale: 2, lensSize: CGSize(width: 600, height: 300), captions: [anchor],
+            showsSourceCaptions: true)[0]
+
+        // 원문을 가리지 않고, 두 줄 자막 높이 위(270 - 46 - 6 = 218)까지 쓴다
+        #expect(frame.showsSource)
+        #expect(!frame.alignsTextToTop)
+        #expect(frame.origin.y == 0)
+        #expect(frame.origin.y + frame.maxHeight == 218)
+        #expect(frame.sourceRect == CGRect(x: 200, y: 250, width: 200, height: 20))
+    }
+
+    @Test func putsBilingualCaptionBelowWhenNoRoomAbove() {
+        // 렌즈 위쪽에 붙은 자막: 위로는 14pt뿐
+        let caption = block(x: 400, y: 40, width: 400, lineHeight: 40)
+        let anchor = CaptionAnchor(centerX: 600, bottom: 80, lineHeight: 40, height: 40)
+
+        let frame = LensGeometry.paragraphFrames(
+            of: [caption], scale: 2, lensSize: CGSize(width: 600, height: 200), captions: [anchor],
+            showsSourceCaptions: true)[0]
+
+        #expect(frame.showsSource)
+        #expect(frame.alignsTextToTop)
+        #expect(frame.origin.y == 46)
+        #expect(frame.maxHeight == 154)
+    }
+
+    @Test func coversCaptionWhenLensHasNoRoomForBilingualCaption() {
+        // 자막 띠만 덮은 얇은 렌즈
+        let caption = block(x: 400, y: 20, width: 400, lineHeight: 40)
+        let anchor = CaptionAnchor(centerX: 600, bottom: 60, lineHeight: 40, height: 40)
+
+        let bilingual = LensGeometry.paragraphFrames(
+            of: [caption], scale: 2, lensSize: CGSize(width: 600, height: 40), captions: [anchor],
+            showsSourceCaptions: true)[0]
+        let covering = LensGeometry.paragraphFrames(
+            of: [caption], scale: 2, lensSize: CGSize(width: 600, height: 40), captions: [anchor])[0]
+
+        #expect(!bilingual.showsSource)
+        #expect(bilingual == covering)
+    }
+
     @Test func captionFontSizeFollowsRememberedLineHeight() {
         #expect(abs(LensGeometry.fontSize(lineHeight: 40, scale: 2) - 18.6) < 0.001)
         #expect(LensGeometry.fontSize(lineHeight: 10, scale: 2) == LensGeometry.fontSizeRange.lowerBound)
@@ -254,11 +303,11 @@ struct LensGeometryTests {
     @Test func keepsTranscriptOnScreenAndClearOfWideToolbar() {
         // 화면 위쪽 렌즈: 위로 넘치지 않게 내린다
         let top = CGRect(x: 200, y: 900, width: 600, height: 80)
-        // 좁은 렌즈: 렌즈보다 넓은 도구 막대(340) 오른쪽에 둔다
+        // 좁은 렌즈: 렌즈보다 넓은 도구 막대(376) 오른쪽에 둔다
         let narrow = CGRect(x: 200, y: 100, width: 200, height: 100)
 
         #expect(LensGeometry.transcriptFrame(for: top, in: screen) == CGRect(x: 808, y: 740, width: 320, height: 260))
-        #expect(LensGeometry.transcriptFrame(for: narrow, in: screen).minX == 548)
+        #expect(LensGeometry.transcriptFrame(for: narrow, in: screen).minX == 584)
     }
 
     @Test func usesTranscriptSizeChosenByUser() {

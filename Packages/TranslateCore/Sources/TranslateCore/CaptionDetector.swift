@@ -5,11 +5,15 @@ public struct CaptionAnchor: Equatable, Sendable {
     public var centerX: CGFloat
     public var bottom: CGFloat
     public var lineHeight: CGFloat
+    /// 이 자리에 나온 가장 높은 자막 상자 높이. 이중 자막은 번역을 이 높이 위에 고정해, 자막이 한 줄·두 줄로 바뀌어도 번역이
+    /// 움직이지 않는다(TASK-050). 0이면 모른다
+    public var height: CGFloat
 
-    public init(centerX: CGFloat, bottom: CGFloat, lineHeight: CGFloat) {
+    public init(centerX: CGFloat, bottom: CGFloat, lineHeight: CGFloat, height: CGFloat = 0) {
         self.centerX = centerX
         self.bottom = bottom
         self.lineHeight = lineHeight
+        self.height = height
     }
 }
 
@@ -48,7 +52,7 @@ public struct CaptionDetector: Sendable {
             }
             guard hasCenteredLines(block, tolerance: tolerance) || changedAroundSameCenter(block, tolerance: tolerance)
             else { return nil }
-            let anchor = CaptionAnchor(centerX: box.midX, bottom: box.maxY, lineHeight: lineHeight)
+            let anchor = CaptionAnchor(centerX: box.midX, bottom: box.maxY, lineHeight: lineHeight, height: box.height)
             anchors = Array((anchors + [anchor]).suffix(Self.maxAnchors))
             return anchor
         }
@@ -62,7 +66,9 @@ public struct CaptionDetector: Sendable {
         previous = []
     }
 
-    /// 기억한 자리를 이번 상자에 맞춘다. 작은 차이는 기억한 값을 그대로 둔다
+    /// 기억한 자리를 이번 상자에 맞춘다. 작은 차이는 기억한 값을 그대로 둔다. 높이는 더 높은 자막이 나오면 늘리기만 한다:
+    /// 흔들림만큼은 무시하고 이번 상자 높이를 따로 쓰면 같은 두 줄 자막에도 번역이 2pt씩 움직였다. 늘리기만 하면 처음 몇 자막 뒤로는
+    /// 그대로다 (글자 크기가 바뀌면 새로 잰다)
     private static func settled(_ anchor: CaptionAnchor, box: CGRect, lineHeight: CGFloat) -> CaptionAnchor {
         var settled = anchor
         let jitter = anchor.lineHeight * jitterRatio
@@ -74,6 +80,9 @@ public struct CaptionDetector: Sendable {
         }
         if anchor.lineHeight > 0, !lineHeightRange.contains(lineHeight / anchor.lineHeight) {
             settled.lineHeight = lineHeight
+            settled.height = box.height
+        } else {
+            settled.height = max(anchor.height, box.height)
         }
         return settled
     }

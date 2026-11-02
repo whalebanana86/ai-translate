@@ -15,10 +15,14 @@ public struct ParagraphFrame: Equatable, Sendable {
     public var isCentered: Bool
     /// 원문 문단 줄 수. 자막 번역을 원문처럼 이 줄 수로 나눈다(`LensGeometry.balancedWidth`)
     public var sourceLineCount: Int
+    /// 이중 자막: 원문을 가리지 않고 번역을 자리(원문 위나 아래)에 따로 그린다
+    public var showsSource: Bool
+    /// 가운데 정렬 번역을 자리의 위 끝에 맞춘다(원문 아래에 둔 이중 자막). 아니면 아래 끝
+    public var alignsTextToTop: Bool
 
     public init(
         origin: CGPoint, width: CGFloat, maxHeight: CGFloat, sourceSize: CGSize, sourceOrigin: CGPoint? = nil,
-        isCentered: Bool = false, sourceLineCount: Int = 1
+        isCentered: Bool = false, sourceLineCount: Int = 1, showsSource: Bool = false, alignsTextToTop: Bool = false
     ) {
         self.origin = origin
         self.width = width
@@ -27,6 +31,8 @@ public struct ParagraphFrame: Equatable, Sendable {
         self.sourceOrigin = sourceOrigin ?? origin
         self.isCentered = isCentered
         self.sourceLineCount = sourceLineCount
+        self.showsSource = showsSource
+        self.alignsTextToTop = alignsTextToTop
     }
 
     /// 가려야 하는 원문 문단 영역
@@ -47,8 +53,8 @@ public enum LensGeometry {
     /// 글자 크기 ÷ OCR 줄 상자 높이. 알고 있는 크기로 그린 영어·한국어·일본어 문장 105회 인식의 중간값 (TASK-040)
     static let fontSizePerLineHeight: CGFloat = 0.93
     public static let minimumLensSize = CGSize(width: 160, height: 80)
-    /// 렌즈가 좁아도 도구 막대 버튼이 다 보이는 너비
-    public static let minimumToolbarWidth: CGFloat = 340
+    /// 렌즈가 좁아도 도구 막대 버튼이 다 보이는 너비 (영상을 볼 때 나오는 "원문 함께" 버튼까지, 340에서는 "원문"이 "…"로 줄었다)
+    public static let minimumToolbarWidth: CGFloat = 376
 
     /// 문단을 원문 위치(왼쪽 위)에 그대로 둔다. 번역이 길어도 다른 문단을 밀지 않는다.
     /// - 너비: 여러 줄 문단은 원문 너비(다단 레이아웃 유지). 한 줄 문단(제목·버튼)은 번역이 길어질 수 있으므로
@@ -56,8 +62,10 @@ public enum LensGeometry {
     /// - 높이: 아래 블록 앞이나 렌즈 아래 끝까지 (원문 높이보다 작게 하지는 않는다)
     /// - 가운데 정렬 자막(`captions`, `CaptionDetector`): 번역을 자막 자리의 가운데·아래 끝에 맞춘다. 너비는 그 가운데를 중심으로
     ///   렌즈 안에서 넓힐 수 있는 만큼, 높이는 위 블록 앞이나 렌즈 위 끝까지 위로 쓴다. 자막이 바뀌어도 번역 자리가 그대로다
+    /// - `showsSourceCaptions`(이중 자막): 자막은 원문을 가리지 않고 번역을 원문 위나 아래에 둔다(`bilingualCaptionFrame`)
     public static func paragraphFrames(
-        of blocks: [TextBlock], scale: CGFloat, lensSize: CGSize, captions: [CaptionAnchor?] = []
+        of blocks: [TextBlock], scale: CGFloat, lensSize: CGSize, captions: [CaptionAnchor?] = [],
+        showsSourceCaptions: Bool = false
     ) -> [ParagraphFrame] {
         let boxes = blocks.map { block in
             let box = block.boundingBox
@@ -67,6 +75,12 @@ public enum LensGeometry {
         return zip(blocks, boxes).enumerated().map { index, item in
             let (block, box) = item
             if captions.indices.contains(index), let anchor = captions[index] {
+                if showsSourceCaptions,
+                    let frame = bilingualCaptionFrame(
+                        of: box, lines: block.lines.count, at: anchor, scale: scale, among: boxes, lensSize: lensSize)
+                {
+                    return frame
+                }
                 return captionFrame(
                     of: box, lines: block.lines.count, at: anchor, scale: scale, among: boxes, lensSize: lensSize)
             }
@@ -103,6 +117,47 @@ public enum LensGeometry {
         return ParagraphFrame(
             origin: CGPoint(x: left, y: bottom - maxHeight), width: halfWidth * 2, maxHeight: maxHeight,
             sourceSize: box.size, sourceOrigin: box.origin, isCentered: true, sourceLineCount: lines)
+    }
+
+    /// 이중 자막 번역과 원문 자막 사이 간격
+    static let bilingualGap: CGFloat = 6
+
+    /// 이중 자막(TASK-050): 원문 자막을 가리지 않고 번역을 그 위에, 위에 자리가 없으면 아래에 둔다. 위 자리는 이 자막 자리에 나온
+    /// 가장 높은 자막(`CaptionAnchor.height`) 위에 고정해 자막이 한 줄·두 줄로 바뀌어도 번역이 움직이지 않는다.
+    /// 그 높이만큼 위·아래 모두 자리가 없으면 위에 한 줄 자리라도 있을 때 위(글자를 줄인다), 그것도 없으면 nil (원문을 가리고 그린다:
+    /// 자막 띠만 덮은 얇은 렌즈)
+    private static func bilingualCaptionFrame(
+        of box: CGRect, lines: Int, at anchor: CaptionAnchor, scale: CGFloat, among boxes: [CGRect], lensSize: CGSize
+    ) -> ParagraphFrame? {
+        let centerX = anchor.centerX / scale
+        let bottom = anchor.bottom / scale
+        let reserved = max(anchor.height / scale, box.height)
+        let halfWidth = max(box.width / 2, min(centerX, lensSize.width - centerX) - spacing)
+        let left = centerX - halfWidth
+        let overlaps = { (other: CGRect) in other.minX < left + halfWidth * 2 && other.maxX > left }
+        let aboveTop = max(
+            boxes.filter { $0.maxY <= box.minY && overlaps($0) }.map(\.maxY).max().map { $0 + spacing } ?? 0, 0)
+        let aboveBottom = bottom - reserved - bilingualGap
+        let belowTop = bottom + bilingualGap
+        let belowBottom = min(
+            boxes.filter { $0.minY >= box.maxY && overlaps($0) }.map(\.minY).min().map { $0 - spacing }
+                ?? lensSize.height, lensSize.height)
+        let frame = { (top: CGFloat, bottom: CGFloat, alignsTextToTop: Bool) in
+            ParagraphFrame(
+                origin: CGPoint(x: left, y: top), width: halfWidth * 2, maxHeight: bottom - top, sourceSize: box.size,
+                sourceOrigin: box.origin, isCentered: true, sourceLineCount: lines, showsSource: true,
+                alignsTextToTop: alignsTextToTop)
+        }
+        if aboveBottom - aboveTop >= reserved {
+            return frame(aboveTop, aboveBottom, false)
+        }
+        if belowBottom - belowTop >= reserved {
+            return frame(belowTop, belowBottom, true)
+        }
+        if aboveBottom - aboveTop >= anchor.lineHeight / scale {
+            return frame(aboveTop, aboveBottom, false)
+        }
+        return nil
     }
 
     /// 자막 번역을 원문처럼 `lines`줄로 고르게 나누는 너비. 자막 자리는 렌즈 너비만큼 넓어 두 줄 자막의 번역이 한 줄로 펴졌다(TASK-046).

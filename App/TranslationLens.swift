@@ -13,6 +13,8 @@ final class LensModel {
         var fontSize: CGFloat
         /// 원문의 바탕색·글자색. 번역을 이 색으로 그린다
         var colors: BlockColors
+        /// 원문 이모지 그림. 번역 글의 이모지 표시(`EmojiFinder.marker`) 자리에 그린다
+        var emojis: [CGImage] = []
 
         /// 원문 자리에 그릴 번역. 번역 전 문단은 가림 상자만, 번역할 필요가 없는 문단은 아무것도 그리지 않는다(원문이 보인다)
         var translation: String? {
@@ -47,20 +49,24 @@ final class LensModel {
     private(set) var isTranscriptVisible: Bool
     /// 번역 일시정지. 캡처·인식·번역을 멈추고 번역을 그리지 않아 원문이 보인다
     private(set) var isPaused = false
+    /// 이중 자막: 영상 자막은 원문을 가리지 않고 번역을 원문 위(자리가 없으면 아래)에 함께 보여준다
+    private(set) var showsSourceCaptions: Bool
 
     @ObservationIgnored var onLanguageChange: ((TargetLanguage) -> Void)?
     @ObservationIgnored var onPeekChange: ((Bool) -> Void)?
     @ObservationIgnored var onTranscriptVisibilityChange: ((Bool) -> Void)?
     @ObservationIgnored var onPauseChange: ((Bool) -> Void)?
+    @ObservationIgnored var onShowsSourceCaptionsChange: ((Bool) -> Void)?
     @ObservationIgnored var onClose: (() -> Void)?
     @ObservationIgnored var onMove: ((DragPhase) -> Void)?
     @ObservationIgnored var onResize: ((DragPhase) -> Void)?
     @ObservationIgnored var onTranscriptMove: ((DragPhase) -> Void)?
     @ObservationIgnored var onTranscriptResize: ((DragPhase) -> Void)?
 
-    init(language: TargetLanguage, showsTranscript: Bool) {
+    init(language: TargetLanguage, showsTranscript: Bool, showsSourceCaptions: Bool = true) {
         self.language = language
         isTranscriptVisible = showsTranscript
+        self.showsSourceCaptions = showsSourceCaptions
     }
 
     func select(_ language: TargetLanguage) {
@@ -80,6 +86,12 @@ final class LensModel {
         onPauseChange?(paused)
     }
 
+    func setShowsSourceCaptions(_ shows: Bool) {
+        guard shows != showsSourceCaptions else { return }
+        showsSourceCaptions = shows
+        onShowsSourceCaptionsChange?(shows)
+    }
+
     func setTranscriptVisible(_ visible: Bool) {
         isTranscriptVisible = visible
         onTranscriptVisibilityChange?(visible)
@@ -89,7 +101,7 @@ final class LensModel {
     var copyText: String {
         paragraphs.compactMap { paragraph in
             switch paragraph.content {
-            case .translated(let text), .original(let text): text
+            case .translated(let text), .original(let text): EmojiFinder.removingMarkers(text)
             case .pending: nil
             }
         }
@@ -116,7 +128,11 @@ struct LensBodyView: View {
             Color.clear
             if !model.isOutdated {
                 let canTranslate = if case .failed = model.status { false } else { true }
-                let covered = model.paragraphs.filter { $0.content.hidesOriginal(canTranslate: canTranslate) }
+                // 이중 자막은 원문이 보이므로 번역이 나오기 전에는 아무것도 그리지 않는다
+                let covered = model.paragraphs.filter {
+                    $0.content.hidesOriginal(canTranslate: canTranslate)
+                        && ($0.translation != nil || !$0.frame.showsSource)
+                }
                 LensParagraphLayout(coverInset: Self.backingInset) {
                     // 가림 상자를 먼저(아래), 번역 글을 나중에(위) 그린다
                     ForEach(covered, content: cover)
@@ -146,6 +162,31 @@ struct LensBodyView: View {
             .layoutValue(key: ParagraphPartKey.self, value: .cover(paragraph.id))
     }
 
+    /// 번역 글. 이모지 표시 자리에 원문에서 오린 이모지를 그린다(TASK-052: 이모지는 번역하지 않고 그대로). 번역에서 표시가
+    /// 빠졌으면 남은 이모지를 끝에 붙이고, 그림보다 많은 표시는 지운다
+    private func translationText(_ paragraph: LensModel.Paragraph) -> Text {
+        let text = paragraph.translation ?? ""
+        guard text.contains(EmojiFinder.marker) || !paragraph.emojis.isEmpty else { return Text(verbatim: text) }
+        var images = paragraph.emojis.makeIterator()
+        let emoji = { (image: CGImage) in
+            // 이모지 글리프는 글자 크기의 약 1.15배이고 기준선 아래로 조금 내려온다
+            Text(Image(decorative: image, scale: CGFloat(image.height) / (paragraph.fontSize * 1.15)))
+                .baselineOffset(-paragraph.fontSize * 0.2)
+        }
+        let parts = text.split(separator: EmojiFinder.marker, omittingEmptySubsequences: false)
+        var result = Text(verbatim: String(parts[0]))
+        for part in parts.dropFirst() {
+            if let image = images.next() {
+                result = Text("\(result)\(emoji(image))")
+            }
+            result = Text("\(result)\(Text(verbatim: String(part)))")
+        }
+        while let image = images.next() {
+            result = Text("\(result) \(emoji(image))")
+        }
+        return result
+    }
+
     /// 가린 원문 줄마다 흐린 막대. 여러 줄이면 마지막 줄을 짧게 그려 글처럼 보이게 한다
     private func lineBars(_ paragraph: LensModel.Paragraph) -> some View {
         let lines = max(paragraph.frame.sourceLineCount, 1)
@@ -169,7 +210,7 @@ struct LensBodyView: View {
     }
 
     private func translation(_ paragraph: LensModel.Paragraph) -> some View {
-        Text(paragraph.translation ?? "")
+        translationText(paragraph)
             .font(.system(size: paragraph.fontSize))
             .foregroundStyle(Color(paragraph.colors.text))
             // 자막은 가운데 정렬 (자막마다 너비·줄 수가 달라도 번역 자리가 그대로)
@@ -257,12 +298,12 @@ struct LensParagraphLayout: Layout {
             let frame = subview[ParagraphFrameKey.self]
             let proposal = ProposedViewSize(width: textWidth(of: subview, in: frame), height: frame.maxHeight)
             let size = subview.sizeThatFits(proposal)
-            // 자막: 자리의 가운데·아래 끝. 보통 문단: 왼쪽 위
+            // 자막: 자리의 가운데·아래 끝(원문 아래에 둔 이중 자막은 위 끝). 보통 문단: 왼쪽 위
             let origin =
                 frame.isCentered
                 ? CGPoint(
                     x: frame.origin.x + (frame.width - size.width) / 2,
-                    y: frame.origin.y + frame.maxHeight - size.height)
+                    y: frame.alignsTextToTop ? frame.origin.y : frame.origin.y + frame.maxHeight - size.height)
                 : frame.origin
             textRects[id] = CGRect(origin: origin, size: size)
             subview.place(
@@ -272,8 +313,11 @@ struct LensParagraphLayout: Layout {
         for subview in subviews {
             guard case .cover(let id) = subview[ParagraphPartKey.self] else { continue }
             let frame = subview[ParagraphFrameKey.self]
-            let covered = frame.sourceRect.union(textRects[id] ?? frame.sourceRect)
-                .insetBy(dx: -coverInset, dy: -coverInset)
+            // 이중 자막은 원문을 가리지 않고 번역 글만 자막 상자처럼 감싼다
+            let covered =
+                frame.showsSource
+                ? (textRects[id] ?? .zero).insetBy(dx: -coverInset * 3, dy: -coverInset)
+                : frame.sourceRect.union(textRects[id] ?? frame.sourceRect).insetBy(dx: -coverInset, dy: -coverInset)
             subview.place(
                 at: CGPoint(x: bounds.minX + covered.minX, y: bounds.minY + covered.minY), anchor: .topLeading,
                 proposal: ProposedViewSize(covered.size))
@@ -328,6 +372,17 @@ struct LensToolbarView: View {
             }
             .labelStyle(.iconOnly)
             .help(model.isPaused ? "번역 다시 시작" : "번역 일시정지 (원문 보기, 인식·번역 멈춤)")
+            // 영상을 볼 때만 보인다 (자막에만 쓰는 설정)
+            if model.isWatchingVideo {
+                Toggle(
+                    isOn: Binding(get: { model.showsSourceCaptions }, set: { model.setShowsSourceCaptions($0) })
+                ) {
+                    Label("원문 함께", systemImage: "captions.bubble")
+                }
+                .toggleStyle(.button)
+                .labelStyle(.iconOnly)
+                .help("영상 자막: 원문 위에 번역을 함께 보기 (끄면 원문을 번역으로 가림)")
+            }
             Toggle(
                 isOn: Binding(get: { model.isTranscriptVisible }, set: { model.setTranscriptVisible($0) })
             ) {
