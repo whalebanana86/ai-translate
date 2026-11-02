@@ -64,4 +64,16 @@ struct TextSettlingTests {
 
         #expect(result.isEmpty)
     }
+
+    @Test func sendsCaptionAtOnceWhenNothingCoversItWhileWaiting() {
+        var settling = TextSettling()
+        let now = start + .milliseconds(0)
+        settling.observe(["Thank you.", "So today we"], at: now)
+
+        // 자막 사이 빈 구간 뒤 첫 자막: 이어 보여줄 지난 번역이 없으면 바로. 지난 번역으로 가려진 자막은 다 나오기를 기다린다
+        let result = settling.ready(
+            ["Thank you.", "So today we"], text: { $0 }, isCovered: { $0 == "So today we" }, at: now)
+
+        #expect(result == ["Thank you."])
+    }
 }

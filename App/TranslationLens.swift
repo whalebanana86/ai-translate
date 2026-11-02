@@ -38,6 +38,8 @@ final class LensModel {
     var hasRecognized = false
     /// 보여주던 번역이 지금 화면과 맞지 않음(스크롤·이동 중). 다시 인식할 때까지 번역을 그리지 않는다
     var isOutdated = false
+    /// 영상(계속 바뀌는 화면)을 보는 중. 자막 사이 빈 구간에 "텍스트를 찾지 못했습니다" 안내를 띄우지 않는다
+    var isWatchingVideo = false
     /// 렌즈 옆 패널에 보여줄 번역 기록
     var transcript = TranslationTranscript()
     private(set) var language: TargetLanguage
@@ -53,6 +55,8 @@ final class LensModel {
     @ObservationIgnored var onClose: (() -> Void)?
     @ObservationIgnored var onMove: ((DragPhase) -> Void)?
     @ObservationIgnored var onResize: ((DragPhase) -> Void)?
+    @ObservationIgnored var onTranscriptMove: ((DragPhase) -> Void)?
+    @ObservationIgnored var onTranscriptResize: ((DragPhase) -> Void)?
 
     init(language: TargetLanguage, showsTranscript: Bool) {
         self.language = language
@@ -101,7 +105,7 @@ struct LensBodyView: View {
     /// 번역이 쓸 수 있는 자리(`ParagraphFrame.maxHeight`)를 넘칠 때 글자를 줄이는 한도
     static let minimumTextScale = 0.6
     /// OCR 영역보다 이만큼 넓게 가려 글자 가장자리(아래로 내려가는 글자 등)도 보이지 않게 한다
-    private static let backingInset: CGFloat = 3
+    static let backingInset: CGFloat = 3
 
     let model: LensModel
 
@@ -109,8 +113,11 @@ struct LensBodyView: View {
         ZStack(alignment: .topLeading) {
             Color.clear
             if !model.isOutdated {
-                LensParagraphLayout {
-                    ForEach(model.paragraphs.filter { $0.translation != nil }, content: translation)
+                let shown = model.paragraphs.filter { $0.translation != nil }
+                LensParagraphLayout(coverInset: Self.backingInset) {
+                    // 가림 상자를 먼저(아래), 번역 글을 나중에(위) 그린다
+                    ForEach(shown, content: cover)
+                    ForEach(shown, content: translation)
                 }
                 placeholder
             }
@@ -122,31 +129,34 @@ struct LensBodyView: View {
         .overlay(alignment: .bottom) { errorBanner }
     }
 
+    /// 원문 문단과 번역 글을 모두 덮는 원문 바탕색 상자. 번역이 원문보다 짧아도, 자막 번역을 기억한 자리에 그려도 원문 글자가
+    /// 보이지 않는다 (자리는 `LensParagraphLayout`이 정한다)
+    private func cover(_ paragraph: LensModel.Paragraph) -> some View {
+        Rectangle()
+            .fill(Color(paragraph.colors.background))
+            .layoutValue(key: ParagraphFrameKey.self, value: paragraph.frame)
+            .layoutValue(key: ParagraphPartKey.self, value: .cover(paragraph.id))
+    }
+
     private func translation(_ paragraph: LensModel.Paragraph) -> some View {
-        let source = paragraph.frame.sourceSize
-        return Text(paragraph.translation ?? "")
+        Text(paragraph.translation ?? "")
             .font(.system(size: paragraph.fontSize))
             .foregroundStyle(Color(paragraph.colors.text))
+            // 자막은 가운데 정렬 (자막마다 너비·줄 수가 달라도 번역 자리가 그대로)
+            .multilineTextAlignment(paragraph.frame.isCentered ? .center : .leading)
             .minimumScaleFactor(Self.minimumTextScale)
-            .background(alignment: .topLeading) {
-                // 번역이 원문보다 짧아도 원문 문단 자리는 다 가린다
-                Rectangle()
-                    .fill(Color(paragraph.colors.background))
-                    .frame(
-                        minWidth: source.width + Self.backingInset * 2,
-                        minHeight: source.height + Self.backingInset * 2,
-                        alignment: .topLeading
-                    )
-                    .padding(-Self.backingInset)
-            }
             .layoutValue(key: ParagraphFrameKey.self, value: paragraph.frame)
+            .layoutValue(key: ParagraphPartKey.self, value: .text(paragraph.id))
     }
 
     @ViewBuilder private var placeholder: some View {
         if model.paragraphs.isEmpty {
             Group {
                 if model.hasRecognized {
-                    Text("렌즈 안에서 텍스트를 찾지 못했습니다.")
+                    // 영상 자막 사이 빈 구간마다 화면 한가운데 뜨지 않게 한다
+                    if !model.isWatchingVideo {
+                        Text("렌즈 안에서 텍스트를 찾지 못했습니다.")
+                    }
                 } else if case .failed = model.status {
                     EmptyView()
                 } else {
@@ -182,18 +192,53 @@ private struct ParagraphFrameKey: LayoutValueKey {
     static let defaultValue = ParagraphFrame(origin: .zero, width: 0, maxHeight: 0, sourceSize: .zero)
 }
 
+/// 문단마다 가림 상자와 번역 글 두 조각을 그린다
+private enum ParagraphPart: Equatable {
+    case cover(Int)
+    case text(Int)
+}
+
+private struct ParagraphPartKey: LayoutValueKey {
+    static let defaultValue = ParagraphPart.text(-1)
+}
+
 /// 문단을 원문 위치에 두고, 쓸 수 있는 자리(너비·최대 높이) 안에서 글을 배치한다. 다른 문단을 밀지 않는다.
+/// 보통 문단은 왼쪽 위, 자막은 가운데·아래 끝에 맞춘다. 가림 상자는 원문 문단과 놓인 번역 글을 모두 덮는다.
 struct LensParagraphLayout: Layout {
+    /// 가림 상자를 원문·번역 영역보다 넓히는 여백
+    var coverInset: CGFloat
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         proposal.replacingUnspecifiedDimensions()
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var textRects: [Int: CGRect] = [:]
         for subview in subviews {
+            guard case .text(let id) = subview[ParagraphPartKey.self] else { continue }
             let frame = subview[ParagraphFrameKey.self]
+            let proposal = ProposedViewSize(width: frame.width, height: frame.maxHeight)
+            let size = subview.sizeThatFits(proposal)
+            // 자막: 자리의 가운데·아래 끝. 보통 문단: 왼쪽 위
+            let origin =
+                frame.isCentered
+                ? CGPoint(
+                    x: frame.origin.x + (frame.width - size.width) / 2,
+                    y: frame.origin.y + frame.maxHeight - size.height)
+                : frame.origin
+            textRects[id] = CGRect(origin: origin, size: size)
             subview.place(
-                at: CGPoint(x: bounds.minX + frame.origin.x, y: bounds.minY + frame.origin.y), anchor: .topLeading,
-                proposal: ProposedViewSize(width: frame.width, height: frame.maxHeight))
+                at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), anchor: .topLeading,
+                proposal: proposal)
+        }
+        for subview in subviews {
+            guard case .cover(let id) = subview[ParagraphPartKey.self] else { continue }
+            let frame = subview[ParagraphFrameKey.self]
+            let covered = frame.sourceRect.union(textRects[id] ?? frame.sourceRect)
+                .insetBy(dx: -coverInset, dy: -coverInset)
+            subview.place(
+                at: CGPoint(x: bounds.minX + covered.minX, y: bounds.minY + covered.minY), anchor: .topLeading,
+                proposal: ProposedViewSize(covered.size))
         }
     }
 }
@@ -293,11 +338,19 @@ struct LensToolbarView: View {
     }
 }
 
-/// 렌즈 옆 번역 기록. 나온 순서대로 쌓고, 맨 아래를 보고 있으면 새 기록을 따라간다 (위로 올려 읽는 중에는 그대로 둔다).
+/// 렌즈 옆 번역 기록. 나온 순서대로 쌓고 새 기록으로 따라 내려간다. 사용자가 위로 올려 읽는 중이면 그대로 둔다.
+/// 머리글을 끌면 옮겨지고, 오른쪽 아래 모서리를 끌면 크기가 바뀐다.
 struct LensTranscriptView: View {
     let model: LensModel
-    /// 맨 아래를 보고 있는지. 이때만 새 기록으로 따라 내려간다
+    @State private var position = ScrollPosition(edge: .bottom)
+    /// 맨 아래를 보고 있는지. 사용자가 스크롤해 위치가 바뀌었을 때만 다시 판단한다
     @State private var isFollowing = true
+
+    /// 따라가기 판단에 쓰는 스크롤 상태
+    private struct ScrollState: Equatable {
+        var contentHeight: CGFloat
+        var isAtBottom: Bool
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -314,6 +367,13 @@ struct LensTranscriptView: View {
             .buttonStyle(.borderless)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
+            .contentShape(Rectangle())
+            .help("끌어서 번역 기록 옮기기")
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { _ in model.onTranscriptMove?(.changed) }
+                    .onEnded { _ in model.onTranscriptMove?(.ended) }
+            )
             Divider()
             if model.transcript.entries.isEmpty {
                 Text("번역한 내용이 여기에 차례로 쌓입니다.")
@@ -327,35 +387,52 @@ struct LensTranscriptView: View {
         }
         .controlSize(.small)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(alignment: .bottomTrailing) { resizeHandle }
+    }
+
+    private var resizeHandle: some View {
+        Image(systemName: "arrow.up.left.and.arrow.down.right")
+            .font(.system(size: 8, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 16, height: 16)
+            .contentShape(Rectangle())
+            .help("끌어서 번역 기록 크기 바꾸기")
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { _ in model.onTranscriptResize?(.changed) }
+                    .onEnded { _ in model.onTranscriptResize?(.ended) }
+            )
+            .padding(2)
     }
 
     private var entries: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(model.transcript.entries) { entry in
-                        Text(entry.translation)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .id(entry.id)
-                    }
-                }
-                .padding(10)
-                .textSelection(.enabled)
-            }
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 24
-            } action: { _, atBottom in
-                isFollowing = atBottom
-            }
-            .onChange(of: model.transcript.entries.last) { _, last in
-                guard isFollowing, let last else { return }
-                proxy.scrollTo(last.id, anchor: .bottom)
-            }
-            .onAppear {
-                if let last = model.transcript.entries.last {
-                    proxy.scrollTo(last.id, anchor: .bottom)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                ForEach(model.transcript.entries) { entry in
+                    Text(entry.translation)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .id(entry.id)
                 }
             }
+            .padding(10)
+            .textSelection(.enabled)
+        }
+        .scrollPosition($position)
+        .defaultScrollAnchor(.bottom, for: .initialOffset)
+        .onScrollGeometryChange(for: ScrollState.self) { geometry in
+            ScrollState(
+                contentHeight: geometry.contentSize.height,
+                isAtBottom: geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 24
+            )
+        } action: { old, new in
+            // 새 기록으로 내용이 길어진 변화는 넘긴다. 그것까지 보면 새 기록으로 내려가기 전에 맨 아래가 아니라고 판단해
+            // 따라가기를 멈췄다 (TASK-036). 내용 높이가 같은데 위치가 바뀌었으면 스크롤한 것이다
+            guard old.contentHeight == new.contentHeight else { return }
+            isFollowing = new.isAtBottom
+        }
+        .onChange(of: model.transcript.entries.last) {
+            guard isFollowing else { return }
+            position.scrollTo(edge: .bottom)
         }
     }
 
