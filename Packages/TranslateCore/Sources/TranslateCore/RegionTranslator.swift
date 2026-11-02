@@ -24,7 +24,7 @@ public struct RegionTranslator: Sendable {
     }
 
     public func recognize(_ image: CGImage) async throws -> [TextBlock] {
-        TextBlockGrouper.group(try await recognizer.recognize(image))
+        TextBlockGrouper.group(EmojiFinder.apply(to: try await recognizer.recognize(image), in: image))
     }
 
     /// 문단을 번역한다. 번역할 글자가 없는 문단(숫자·기호·버튼)과 이미 대상 언어인 문단은 엔진에 보내지 않고 원문을 그대로 쓴다.

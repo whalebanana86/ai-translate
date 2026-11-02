@@ -92,13 +92,13 @@ struct RegionTranslatorTests {
     }
 
     @Test func passesTextAlreadyInTargetLanguageThrough() async throws {
-        let blocks = TextBlockGrouper.group([line("@user 1년 전", y: 0), line("Legend never dies.", y: 60)])
+        let blocks = TextBlockGrouper.group([line("답글 4개", y: 0), line("Legend never dies.", y: 60)])
         let provider = RecordingProvider(translations: ["전설은 죽지 않는다."])
 
         let translated = try await RegionTranslator(provider: provider).translate(blocks, to: .korean)
 
         #expect(await provider.requests.map(\.segments) == [["Legend never dies."]])
-        #expect(translated.map(\.translation) == ["@user 1년 전", "전설은 죽지 않는다."])
+        #expect(translated.map(\.translation) == ["답글 4개", "전설은 죽지 않는다."])
     }
 
     @Test func passesStyleToEngine() async throws {

@@ -27,7 +27,7 @@ struct CaptionDetectorTests {
 
         let result = detector.detect([block("So the real question", lines: [centered(700), centered(520)])])
 
-        #expect(result == [CaptionAnchor(centerX: 800, bottom: 600, lineHeight: 40)])
+        #expect(result == [CaptionAnchor(centerX: 800, bottom: 600, lineHeight: 40, height: 80)])
     }
 
     @Test func leftAlignedParagraphIsNotCaption() {
@@ -107,7 +107,29 @@ struct CaptionDetectorTests {
             }, text: enlarged.text, boundingBox: CGRect(x: enlarged.boundingBox.minX, y: 450, width: 1100, height: 60))
         let resized = detector.detect([bigger])
 
-        #expect(raised == [CaptionAnchor(centerX: 800, bottom: 510, lineHeight: 40)])
-        #expect(resized == [CaptionAnchor(centerX: 800, bottom: 510, lineHeight: 60)])
+        // 높이는 두 줄 자막(80)을 기억하고, 글자 크기가 바뀌면 새로 잰다
+        #expect(raised == [CaptionAnchor(centerX: 800, bottom: 510, lineHeight: 40, height: 80)])
+        #expect(resized == [CaptionAnchor(centerX: 800, bottom: 510, lineHeight: 60, height: 60)])
+    }
+
+    @Test func remembersTallestCaptionHeight() {
+        var detector = CaptionDetector()
+
+        let one = detector.detect([block("So the real question", lines: [centered(700), centered(520)])])
+        _ = detector.detect([block("Thank you.", lines: [centered(300)])])
+        // 세 줄 자막이 나오면 늘린다
+        let three = detector.detect([block("A long caption", lines: [centered(900), centered(700), centered(500)])])
+        // 다시 한 줄이 와도 줄지 않는다
+        let after = detector.detect([block("Next.", lines: [centered(200)])])
+        // 4px 더 높게 인식된 세 줄도 늘린다 (흔들림이라고 무시하면 번역 자리가 그 상자 높이를 따로 따라 움직였다)
+        let base = block("Another long one", lines: [centered(900), centered(700), centered(500)])
+        let taller = detector.detect([
+            TextBlock(lines: base.lines, text: base.text, boundingBox: base.boundingBox.insetBy(dx: 0, dy: -2))
+        ])
+
+        #expect(one.first??.height == 80)
+        #expect(three.first??.height == 120)
+        #expect(after.first??.height == 120)
+        #expect(taller.first??.height == 124)
     }
 }

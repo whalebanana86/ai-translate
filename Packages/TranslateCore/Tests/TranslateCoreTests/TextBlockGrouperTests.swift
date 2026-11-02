@@ -199,6 +199,9 @@ struct TextBlockGrouperTests {
         "@candycake9531 6년 전", "@OjaswiThapa-v8f 13시간 전", "@user-kx9pq2 2일전", "@user 1개월 전(수정됨)",
         "@user 2 days ago", "@user 1 year ago (edited)", "@ユーザー 3日前", "@ユーザー 6 年前（編集済み）", "@用户 5小时前",
         "u/someone · 3 hours ago",
+        // X 게시물 머리줄 (첫 줄은 실제 화면 OCR 결과: "17분"을 "17₽"로 읽었다)
+        "Sylvester Osemudiamen Prosper @Sylvester070783 • 17₽", "Sylvester Osemudiamen Prosper @SylvesterO70783 · 17분",
+        "Jane Doe @jane · Nov 2, 2023", "김철수 @chulsoo · 11월 2일", "山田太郎 @yamada · 3時間", "Jane Doe @ jane · 2h",
     ])
     func recognizesBylines(text: String) {
         #expect(TextBlockGrouper.isByline(line(text, y: 0)))
@@ -207,9 +210,24 @@ struct TextBlockGrouperTests {
     @Test(arguments: [
         "Rick rolling is the one meme that will never die", "답글 4개", "2026년 전시회 일정",
         "I have been listening to this song every day since 2 years ago",
+        // X 본문: 아이디가 있어도 뒤가 시각이 아니다
+        "Thanks @bob. 2 more things", "Thanks @bob . 2 more things",
+        "@OpenAI GPT-6.1 Terra: $1 per million input tokens",
+        "cc @jane", "Jane Doe @jane · 방금",
     ])
     func doesNotTakeOtherLinesForBylines(text: String) {
         #expect(!TextBlockGrouper.isByline(line(text, y: 0)))
+    }
+
+    @Test func doesNotTranslateBylines() {
+        let blocks = TextBlockGrouper.group([
+            line("Sylvester Osemudiamen Prosper @Sylvester070783 • 17₽", x: 117, y: 49, width: 827, height: 34),
+            line("@user 2 days ago", y: 120),
+            line("Great thread, thanks for sharing.", y: 180),
+        ])
+
+        // 이름·아이디는 번역 대상이 아니다 (이름이 한글 발음으로 바뀌었다)
+        #expect(blocks.map(\.isTranslatable) == [false, false, true])
     }
 
     @Test func joinsWrappedBodyLineEndingWithRelativeTime() {

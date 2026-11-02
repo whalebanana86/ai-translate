@@ -8,6 +8,8 @@ import TranslateCore
 final class TranslationLensController {
     private static let languageKey = "TargetLanguage"
     private static let transcriptVisibleKey = "TranscriptVisible"
+    /// 이중 자막. 저장값이 없으면 켠다
+    private static let bilingualCaptionsKey = "BilingualCaptions"
     private static let transcriptSizeKey = "TranscriptSize"
 
     private let settings: EngineSettings
@@ -47,12 +49,16 @@ final class TranslationLensController {
         let session = LensSession(
             frame: selection.globalRect, language: language,
             showsTranscript: UserDefaults.standard.bool(forKey: Self.transcriptVisibleKey),
+            showsSourceCaptions: UserDefaults.standard.object(forKey: Self.bilingualCaptionsKey) as? Bool ?? true,
             transcriptSize: Self.savedTranscriptSize, capturer: capturer,
             engine: settings.engine ?? .claudeCode, memoryStore: memoryStore
         ) { [settings] in try await settings.makeProvider() }
         session.onLanguageChange = { [weak self] language in self?.language = language }
         session.onTranscriptVisibilityChange = { visible in
             UserDefaults.standard.set(visible, forKey: Self.transcriptVisibleKey)
+        }
+        session.onShowsSourceCaptionsChange = { shows in
+            UserDefaults.standard.set(shows, forKey: Self.bilingualCaptionsKey)
         }
         session.onTranscriptSizeChange = { size in
             UserDefaults.standard.set([Double(size.width), Double(size.height)], forKey: Self.transcriptSizeKey)
@@ -106,6 +112,7 @@ final class LensSession {
 
     var onLanguageChange: ((TargetLanguage) -> Void)?
     var onTranscriptVisibilityChange: ((Bool) -> Void)?
+    var onShowsSourceCaptionsChange: ((Bool) -> Void)?
     var onTranscriptSizeChange: ((CGSize) -> Void)?
     var onClose: (() -> Void)?
 
@@ -142,6 +149,8 @@ final class LensSession {
     private var blocks: [TextBlock] = []
     /// `blocks`와 같은 순서의 원문 색
     private var colors: [BlockColors] = []
+    /// 문단마다 이모지 그림 (`TextBlock.emojis` 순서)
+    private var emojis: [[CGImage]] = []
     private var scale: CGFloat = 2
     /// 마지막으로 인식한 캡처 이미지 높이(픽셀). 렌즈 끝에 걸친 문단을 가린다
     private var imageHeight: CGFloat = 0
@@ -192,8 +201,8 @@ final class LensSession {
     private static let log = Logger(subsystem: "com.example.AITranslate", category: "pipeline")
 
     init(
-        frame: CGRect, language: TargetLanguage, showsTranscript: Bool, transcriptSize: CGSize?,
-        capturer: ScreenCapturer,
+        frame: CGRect, language: TargetLanguage, showsTranscript: Bool, showsSourceCaptions: Bool,
+        transcriptSize: CGSize?, capturer: ScreenCapturer,
         engine: TranslationEngine, memoryStore: TranslationMemoryStore,
         makeProvider: @escaping @MainActor () async throws -> any TranslationProvider
     ) {
@@ -204,7 +213,8 @@ final class LensSession {
         self.memoryStore = memoryStore
         memoryEngine = engine
         memory = memoryStore.load(engine)
-        let model = LensModel(language: language, showsTranscript: showsTranscript)
+        let model = LensModel(
+            language: language, showsTranscript: showsTranscript, showsSourceCaptions: showsSourceCaptions)
         self.model = model
         bodyPanel = LensPanel(
             content: Self.hosting(LensBodyView(model: model)), level: .floating, passesMouseThrough: true)
@@ -221,6 +231,10 @@ final class LensSession {
         model.onPeekChange = { [weak self] peeking in self?.bodyPanel.alphaValue = peeking ? 0 : 1 }
         model.onTranscriptVisibilityChange = { [weak self] visible in self?.showTranscript(visible) }
         model.onPauseChange = { [weak self] paused in self?.pauseDidChange(paused) }
+        model.onShowsSourceCaptionsChange = { [weak self] shows in
+            self?.refreshParagraphs()
+            self?.onShowsSourceCaptionsChange?(shows)
+        }
         model.onTranscriptMove = { [weak self] phase in
             self?.dragTranscript(phase, resizing: false) { start, drag in
                 start.offsetBy(dx: drag.width, dy: drag.height)
@@ -334,10 +348,16 @@ final class LensSession {
             }
             // 엔진 준비를 기다리지 않고 바로 인식한다 (준비는 `prepareTranslator`가 따로 한다)
             let settled = ContinuousClock.now
-            let recognized = TextBlockGrouper.group(try await recognizer.recognize(image))
+            let lines = try await recognizer.recognize(image)
             let ocred = ContinuousClock.now
-            let sampled = await Task.detached {
-                recognized.map { BlockColors.sample(image, in: $0.boundingBox) ?? .plain }
+            // 이모지 찾기·색 뽑기는 화면 픽셀을 다시 읽으므로 메인 스레드 밖에서 한다. 이모지는 번역 글 안에 그리려고 오려 둔다
+            // (메모리에만 둔다)
+            let (recognized, sampled, emojiImages) = await Task.detached {
+                let blocks = TextBlockGrouper.group(EmojiFinder.apply(to: lines, in: image))
+                return (
+                    blocks, blocks.map { BlockColors.sample(image, in: $0.boundingBox) ?? .plain },
+                    blocks.map { $0.emojis.compactMap { image.cropping(to: $0.integral) } }
+                )
             }
             .value
             let colored = ContinuousClock.now
@@ -345,6 +365,7 @@ final class LensSession {
             guard interaction == nil, !model.isPaused else { return }
             blocks = recognized
             colors = sampled
+            emojis = emojiImages
             if tracker.isKeepingUp {
                 settling.observe(recognized.map(\.text), at: .now)
                 captions = captionDetector.detect(recognized)
@@ -378,7 +399,7 @@ final class LensSession {
             Self.log.info(
                 """
                 인식(\(trigger, privacy: .public)): 캡처 \(timings.capture, privacy: .public)ms · \
-                OCR \(timings.ocr, privacy: .public)ms · 색 \(timings.colors, privacy: .public)ms · \
+                OCR \(timings.ocr, privacy: .public)ms · 문단·이모지·색 \(timings.colors, privacy: .public)ms · \
                 배치 \(timings.layout, privacy: .public)ms · 문단 \(recognized.count, privacy: .public)개 \
                 (번역 필요 \(missing, privacy: .public)개) · 변화 후 \(timings.sinceChange, privacy: .public)ms · \
                 마지막 스크롤 후 \(timings.sinceScroll, privacy: .public)ms
@@ -647,7 +668,9 @@ final class LensSession {
     }
 
     private func refreshParagraphs() {
-        let frames = LensGeometry.paragraphFrames(of: blocks, scale: scale, lensSize: frame.size, captions: captions)
+        let frames = LensGeometry.paragraphFrames(
+            of: blocks, scale: scale, lensSize: frame.size, captions: captions,
+            showsSourceCaptions: model.showsSourceCaptions)
         var contents = blocks.map { memory.content(of: $0, in: model.language) }
         recordTranscript(contents)
         // 계속 바뀌는 화면에서만 잇는다. 스크롤한 페이지에서 이으면 다른 문단의 번역이 보인다.
@@ -673,7 +696,8 @@ final class LensSession {
                 id: index, content: content, frame: paragraphFrame,
                 fontSize: fontSizes.indices.contains(index)
                     ? fontSizes[index] : LensGeometry.fontSize(of: block, scale: scale),
-                colors: colors.indices.contains(index) ? colors[index] : .plain)
+                colors: colors.indices.contains(index) ? colors[index] : .plain,
+                emojis: emojis.indices.contains(index) ? emojis[index] : [])
         }
     }
 
@@ -682,7 +706,9 @@ final class LensSession {
         var changed = false
         for (block, content) in zip(blocks, contents) {
             if case .translated(let translation) = content,
-                transcript.record(source: block.text, translation: translation, in: model.language)
+                transcript.record(
+                    source: EmojiFinder.removingMarkers(block.text),
+                    translation: EmojiFinder.removingMarkers(translation), in: model.language)
             {
                 changed = true
             }

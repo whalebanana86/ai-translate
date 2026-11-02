@@ -7,10 +7,15 @@ public struct TextBlock: Equatable, Sendable {
     /// 줄 영역의 합집합. 이미지 픽셀 좌표, 왼쪽 위 원점
     public var boundingBox: CGRect
 
-    /// 번역할 글자가 있는지. 숫자·기호·버튼(`$19`, `120`, `...`, 아이콘을 글자로 읽은 좋아요 수 `C 42만`)은 번역하지 않고
-    /// 원문 그대로 보여준다
+    /// 글 안 `EmojiFinder.marker`마다 원래 이모지 영역(이미지 픽셀), 글 순서
+    public var emojis: [CGRect] {
+        lines.flatMap(\.emojis)
+    }
+
+    /// 번역할 글자가 있는지. 숫자·기호·버튼(`$19`, `120`, `...`, 아이콘을 글자로 읽은 좋아요 수 `C 42만`)과 작성자 줄
+    /// (`TextBlockGrouper.isByline`: 이름·아이디는 번역 대상이 아니다, TASK-051)은 번역하지 않고 원문 그대로 보여준다
     public var isTranslatable: Bool {
-        text.hasWord
+        text.hasWord && !(lines.count == 1 && TextBlockGrouper.isByline(lines[0]))
     }
 }
 
@@ -79,15 +84,38 @@ public enum TextBlockGrouper {
     /// 작성자·시각 줄 앞에 올 수 있는 단어 수 (예: "@아이디", "u/name ·", "user commented")
     static let maxBylineWords = 3
 
-    /// 댓글 머리줄처럼 작성자 옆에 상대 시각이 붙은 줄("@아이디 6년 전(수정됨)", "@user 2 days ago").
-    /// 본문과 크기·간격이 비슷해 한 문단으로 이어졌고, 그러면 번역이 원문 문단 너비 안에서 다시 줄바꿈돼 날짜가 다음 줄로
-    /// 밀렸다(TASK-043). 상대 시각 앞 단어가 적은 줄만 본다: 본문의 긴 줄이 "... 2 years ago"로 끝나는 경우는 잇는다.
+    /// 게시 시각 앞 구분점 (X: "@아이디 · 17분". OCR은 "•"·"."로도 읽는다)
+    static let bylineSeparators: Set<Character> = ["·", "•", "∙", "・", ".", "-", "–", "—"]
+    /// 게시 시각 단어 수 ("17분", "11월 2일", "Nov 2, 2023")
+    static let maxBylineTimeWords = 3
+
+    /// 작성자 줄. 앞뒤 줄과 잇지 않고(본문에 이으면 번역이 원문 너비 안에서 다시 줄바꿈돼 날짜가 다음 줄로 밀렸다, TASK-043)
+    /// 번역하지 않는다(이름이 한글 발음으로 바뀌었다, TASK-051).
+    /// - 댓글 머리줄처럼 작성자 옆에 상대 시각이 붙은 줄("@아이디 6년 전(수정됨)", "@user 2 days ago"). 상대 시각 앞 단어가 적은
+    ///   줄만 본다: 본문의 긴 줄이 "... 2 years ago"로 끝나는 경우는 잇는다
+    /// - 이름 뒤 아이디와 게시 시각("Name @handle · 17분", X): 아이디 뒤가 구분점과 짧은 시각(마지막 단어에 숫자)뿐인 줄
     static func isByline(_ line: RecognizedLine) -> Bool {
+        isPostHeader(line.text) || endsWithRelativeTime(line.text)
+    }
+
+    static func isPostHeader(_ text: String) -> Bool {
+        let words = text.split(whereSeparator: \.isWhitespace)
+        guard let at = words.firstIndex(where: { $0.hasPrefix("@") }) else { return false }
+        // OCR이 "@ 아이디"로 띄어 읽은 경우
+        let handle = words[at] == "@" ? at + 1 : at
+        guard handle + 1 < words.count else { return false }
+        let tail = words[(handle + 1)...].joined(separator: " ")
+        guard let separator = tail.first, bylineSeparators.contains(separator) else { return false }
+        let time = tail.dropFirst().split(whereSeparator: \.isWhitespace)
+        return (1...maxBylineTimeWords).contains(time.count) && time.last?.contains(where: \.isNumber) == true
+    }
+
+    private static func endsWithRelativeTime(_ text: String) -> Bool {
         let relativeTime =
             #/(?:\d+\s*(?:초|분|시간|일|주|개월|달|년)\s*전|\d+\s+(?:second|minute|hour|day|week|month|year)s?\s+ago|\d+\s*(?:秒|分|分钟|時間|小时|日|天|週間|周|か月|ヶ月|カ月|个月|年)\s*前)\s*(?:[(（]\s*(?:수정됨|edited|編集済み|已编辑|已編輯)\s*[)）])?\s*$/#
             .ignoresCase()
-        guard let match = line.text.firstMatch(of: relativeTime) else { return false }
-        return line.text[..<match.range.lowerBound].split(whereSeparator: \.isWhitespace).count <= maxBylineWords
+        guard let match = text.firstMatch(of: relativeTime) else { return false }
+        return text[..<match.range.lowerBound].split(whereSeparator: \.isWhitespace).count <= maxBylineWords
     }
 
     /// 잘린 글을 펼치거나 접는 링크 (공백을 빼고 소문자로 비교한다)
