@@ -26,7 +26,7 @@ final class TranslationLensController {
     private var language: TargetLanguage {
         get {
             UserDefaults.standard.string(forKey: Self.languageKey).flatMap(TargetLanguage.init(rawValue:))
-                ?? TargetLanguage.preferred(from: Locale.preferredLanguages)
+                ?? TargetLanguage.preferred(from: AppLanguage.systemLanguages())
         }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: Self.languageKey) }
     }
@@ -379,12 +379,13 @@ final class LensSession {
                 captions = []
             }
             // 자막은 기억한 줄 높이, 그 밖에는 문단 줄 높이의 중간값으로 정하고, 비슷한 높이는 한 크기로 묶는다
+            let language = model.language
             fontSizes = fontSizer.fontSizes(
                 for: recognized.indices.map { index in
                     captions.indices.contains(index)
                         ? captions[index]?.lineHeight ?? FontSizer.lineHeight(of: recognized[index])
                         : FontSizer.lineHeight(of: recognized[index])
-                }, scale: selection.scale)
+                }, drawn: recognized.map { $0.needsTranslation(to: language) }, scale: selection.scale)
             if model.isWatchingVideo != tracker.isKeepingUp {
                 model.isWatchingVideo = tracker.isKeepingUp
             }

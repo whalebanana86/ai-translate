@@ -5,6 +5,7 @@ import TranslateCore
 /// 번역 엔진 선택 화면. 처음 실행 때(`isOnboarding`)와 설정 창이 같이 쓴다.
 struct SettingsView: View {
     @Bindable var settings: EngineSettings
+    let language: AppLanguageSettings
     var isOnboarding: Bool
     var onDone: () -> Void
 
@@ -24,6 +25,7 @@ struct SettingsView: View {
             }
             if !isOnboarding {
                 MemorySection(settings: settings)
+                LanguageSection(language: language)
             }
             HStack {
                 Text("⌘⇧1을 누르고 영역을 드래그하면 번역 렌즈가 생깁니다.")
@@ -131,7 +133,7 @@ private struct EngineModelPicker: View {
     }
 
     private var summary: String {
-        guard let selected = settings.model(for: engine) else { return "Codex에 들어 있는 기본 모델" }
+        guard let selected = settings.model(for: engine) else { return String(localized: "Codex에 들어 있는 기본 모델") }
         let models = engine == .codex ? settings.codexModels : ClaudeCodeProvider.models
         return models.first { $0.id == selected }?.summary ?? ""
     }
@@ -231,6 +233,40 @@ private struct MemorySection: View {
                 }
             }
             .controlSize(.small)
+        }
+    }
+}
+
+/// 앱 화면 언어 (TASK-058). 번역할 언어는 렌즈 도구 막대에서 고른다. 바꾸면 다시 시작해야 적용된다
+private struct LanguageSection: View {
+    @Bindable var language: AppLanguageSettings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("언어").font(.headline)
+                Spacer()
+                Picker("언어", selection: $language.language) {
+                    Text("시스템 설정").tag(AppLanguage.system)
+                    Text(verbatim: "한국어").tag(AppLanguage.korean)
+                    Text(verbatim: "English").tag(AppLanguage.english)
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            Text("메뉴·설정·렌즈 도구 막대에 쓰는 언어입니다. 번역할 언어는 렌즈 도구 막대에서 고릅니다.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if language.needsRestart {
+                HStack {
+                    Label("앱을 다시 시작하면 바뀝니다.", systemImage: "arrow.clockwise.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("다시 시작") { language.relaunch() }
+                }
+                .controlSize(.small)
+            }
         }
     }
 }

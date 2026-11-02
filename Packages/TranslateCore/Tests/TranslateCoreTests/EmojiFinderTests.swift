@@ -38,6 +38,11 @@ struct EmojiFinderTests {
                 blue: 0.9)
         }
 
+        /// 한 가지 색으로 꽉 찬 이모지 (👍)
+        func plainEmoji(_ rect: CGRect) {
+            fill(rect.insetBy(dx: 2, dy: 2), red: 1, green: 0.78, blue: 0.2)
+        }
+
         /// 파란 글자: 가는 세로 획
         func blueWord(_ rect: CGRect) {
             for x in stride(from: rect.minX + 2, to: rect.maxX - 4, by: 10) {
@@ -131,6 +136,22 @@ struct EmojiFinderTests {
 
         #expect(result.map(\.text) == ["Congrats!! 🟦 You", "Follow Al now"])
         #expect(result[1].emojis.isEmpty)
+    }
+
+    @Test func dropsShortWordOverFilledSingleColorEmoji() {
+        let canvas = Canvas()
+        // 👍를 "de"로 읽은 줄 (노란색 한 가지라 색 퍼짐으로는 못 가린다)
+        let thumbs = line([
+            ("Mine", 100, 70), ("runs", 180, 60), ("fine", 250, 50), ("de", 310, 32), ("Battery", 352, 100),
+        ])
+        for (index, box) in thumbs.wordBoxes.enumerated() where index != 3 {
+            canvas.word(box)
+        }
+        canvas.plainEmoji(CGRect(x: 310, y: 80, width: 32, height: 30))
+
+        let result = EmojiFinder.apply(to: [thumbs], in: canvas.image)
+
+        #expect(result.map(\.text) == ["Mine runs fine 🟦 Battery"])
     }
 
     @Test func leavesLinkTextProfilePictureAndFarEmojiAlone() {

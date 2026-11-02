@@ -26,6 +26,9 @@ public enum EmojiFinder {
     static let reachRatio = 1.5
     /// 두 글자 이하 단어를 이모지를 잘못 읽은 글자로 볼 덩어리 색 퍼짐 (가장 많은 색상 구간 밖 비율). 파란 링크 "Al" 0.00, 🎉 0.42
     static let junkSpread = 0.25
+    /// 두 글자 이하 단어를 잘못 읽은 글자로 볼 덩어리 채움(색 있는 픽셀 ÷ 너비×줄 높이). 한 가지 색 이모지(👍 → "de")를 잡는다.
+    /// 측정: 이모지 0.31~0.75(😂🔥❤️😊 0.6 이상), 파란·빨간 글자 0.25~0.38 (TASK-055)
+    static let junkFill = 0.45
 
     /// 이모지 자리에 표시를 넣고 잘못 읽은 글자를 뺀 줄. 바뀌지 않은 줄은 그대로 돌려준다
     public static func apply(to lines: [RecognizedLine], in image: CGImage) -> [RecognizedLine] {
@@ -67,10 +70,11 @@ public enum EmojiFinder {
 
     // MARK: 덩어리
 
-    /// 색 있는 덩어리. `spread`는 색상 퍼짐(가장 많은 60도 구간 밖 비율)
+    /// 색 있는 덩어리. `spread`는 색상 퍼짐(가장 많은 60도 구간 밖 비율), `fill`은 줄 높이 띠 안 채움
     struct Blob: Equatable {
         var box: CGRect
         var spread: Double
+        var fill: Double
     }
 
     /// 단어 하나. 이모지는 `isEmoji`
@@ -99,7 +103,7 @@ public enum EmojiFinder {
     }
 
     /// 이모지를 잘못 읽은 글자: 덩어리와 절반 넘게 겹치고, 글자가 없거나(®, *), 줄의 다른 단어와 문자가 다르거나(영어 줄의 然),
-    /// 두 글자 이하이면서 덩어리 색이 여러 가지다(🎉 → "it". 파란 "Al"은 한 가지 색)
+    /// 두 글자 이하이면서 덩어리 색이 여러 가지거나(🎉 → "it") 꽉 찼다(👍 → "de"). 파란 "Al"은 한 가지 색에 가는 획이다
     static func isMisread(_ word: Word, over blob: Blob, in line: RecognizedLine) -> Bool {
         let overlap = min(word.box.maxX, blob.box.maxX) - max(word.box.minX, blob.box.minX)
         guard word.box.width > 0, overlap >= word.box.width * 0.5 else { return false }
@@ -110,7 +114,7 @@ public enum EmojiFinder {
         if letters.allSatisfy(isEastAsian), !line.text.filter(\.isLetter).allSatisfy(isEastAsian) {
             return true
         }
-        return letters.count <= 2 && blob.spread >= junkSpread
+        return letters.count <= 2 && (blob.spread >= junkSpread || blob.fill >= junkFill)
     }
 
     private static func isEastAsian(_ character: Character) -> Bool {
@@ -286,7 +290,8 @@ public enum EmojiFinder {
                 let colored = max(sectors.reduce(0, +), 1)
                 return Blob(
                     box: CGRect(x: run.lowerBound, y: minY, width: run.count, height: maxY - minY + 1),
-                    spread: 1 - Double(sectors.max() ?? 0) / Double(colored))
+                    spread: 1 - Double(sectors.max() ?? 0) / Double(colored),
+                    fill: Double(sectors.reduce(0, +)) / (Double(run.count) * lineHeight))
             }
         }
     }

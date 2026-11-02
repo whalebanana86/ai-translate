@@ -10,28 +10,30 @@ public enum TranslationEngine: String, CaseIterable, Codable, Identifiable, Send
         switch self {
         case .claudeCode: "Claude Code"
         case .codex: "Codex"
-        case .local: "로컬 LLM (Hy-MT2)"
+        case .local: String(localized: "로컬 LLM (Hy-MT2)", bundle: .module)
         }
     }
 
     public var summary: String {
         switch self {
         case .claudeCode:
-            "이 Mac에 설치된 Claude Code로 번역합니다. 기본 모델(Haiku)은 한 번에 3~6초 걸립니다. "
-                + "Claude 요금제 사용량이 쓰입니다."
+            String(
+                localized: "이 Mac에 설치된 Claude Code로 번역합니다. 기본 모델(Haiku)은 한 번에 3~6초 걸립니다. Claude 요금제 사용량이 쓰입니다.",
+                bundle: .module)
         case .codex:
-            "이 Mac에 설치된 Codex CLI로 번역합니다. 한 번에 7~9초 걸리고 ChatGPT 요금제 사용량이 쓰입니다."
+            String(localized: "이 Mac에 설치된 Codex CLI로 번역합니다. 한 번에 7~9초 걸리고 ChatGPT 요금제 사용량이 쓰입니다.", bundle: .module)
         case .local:
-            "이 Mac 안에서 번역합니다. 가장 빠르고(문단당 0.1~1초) 글이 밖으로 나가지 않습니다. "
-                + "번역 모델(약 1GB)을 받아야 합니다."
+            String(
+                localized: "이 Mac 안에서 번역합니다. 가장 빠르고(문단당 0.1~1초) 글이 밖으로 나가지 않습니다. 번역 모델(약 1GB)을 받아야 합니다.",
+                bundle: .module)
         }
     }
 
     /// 선택 영역에서 인식한 글이 기기 밖 번역 서비스로 나가는 곳. 로컬 엔진은 nil
     public var transmissionDestination: String? {
         switch self {
-        case .claudeCode: "Claude Code를 통해 Anthropic"
-        case .codex: "Codex CLI를 통해 OpenAI"
+        case .claudeCode: String(localized: "Claude Code를 통해 Anthropic", bundle: .module)
+        case .codex: String(localized: "Codex CLI를 통해 OpenAI", bundle: .module)
         case .local: nil
         }
     }

@@ -1,0 +1,681 @@
+{
+  "sourceLanguage" : "ko",
+  "strings" : {
+    "%@ %@" : {
+      "shouldTranslate" : false
+    },
+    "%@ CLI를 찾을 수 없습니다. 설치하고 터미널에서 로그인하세요." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't find the %@ CLI. Install it and sign in from Terminal."
+          }
+        }
+      }
+    },
+    "%@%@" : {
+      "shouldTranslate" : false
+    },
+    "%lld%%" : {
+      "shouldTranslate" : false
+    },
+    "AI Translate" : {
+      "shouldTranslate" : false
+    },
+    "AI Translate 시작하기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get Started with AI Translate"
+          }
+        }
+      }
+    },
+    "AI Translate를 시작합니다" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Welcome to AI Translate"
+          }
+        }
+      }
+    },
+    "Apple Silicon(M1 이상) Mac에서만 쓸 수 있습니다." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Available only on Macs with Apple silicon (M1 or later)."
+          }
+        }
+      }
+    },
+    "Codex에 들어 있는 기본 모델" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The default model built into Codex"
+          }
+        }
+      }
+    },
+    "Hy-MT2 1.8B · Apache-2.0 · Hugging Face" : {
+      "shouldTranslate" : false
+    },
+    "⌘⇧1을 누르고 영역을 드래그하면 번역 렌즈가 생깁니다." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Press ⌘⇧1 and drag over an area to create a translation lens."
+          }
+        }
+      }
+    },
+    "계속" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue"
+          }
+        }
+      }
+    },
+    "기본값" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default"
+          }
+        }
+      }
+    },
+    "끌어서 렌즈 옮기기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag to move the lens"
+          }
+        }
+      }
+    },
+    "끌어서 렌즈 크기 바꾸기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag to resize the lens"
+          }
+        }
+      }
+    },
+    "끌어서 번역 기록 옮기기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag to move the translation history"
+          }
+        }
+      }
+    },
+    "끌어서 번역 기록 크기 바꾸기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag to resize the translation history"
+          }
+        }
+      }
+    },
+    "다시 받기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Download Again"
+          }
+        }
+      }
+    },
+    "다시 시작" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restart"
+          }
+        }
+      }
+    },
+    "닫기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close"
+          }
+        }
+      }
+    },
+    "렌즈 닫기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close the lens"
+          }
+        }
+      }
+    },
+    "렌즈 아래 글을 인식하는 중" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recognizing text under the lens"
+          }
+        }
+      }
+    },
+    "렌즈 아래 내용이 바뀌면 자동으로 번역합니다" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translates automatically when the content under the lens changes"
+          }
+        }
+      }
+    },
+    "렌즈 안에서 텍스트를 찾지 못했습니다." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No text found in the lens."
+          }
+        }
+      }
+    },
+    "렌즈를 잠시 걷어 원문 보기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lift the lens for a moment to see the original"
+          }
+        }
+      }
+    },
+    "메뉴·설정·렌즈 도구 막대에 쓰는 언어입니다. 번역할 언어는 렌즈 도구 막대에서 고릅니다." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The language of the menu, settings, and lens toolbar. Choose the language to translate into in the lens toolbar."
+          }
+        }
+      }
+    },
+    "모델" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Model"
+          }
+        }
+      }
+    },
+    "모델 받기 (%@)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Download Model (%@)"
+          }
+        }
+      }
+    },
+    "번역 기록" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translation History"
+          }
+        }
+      }
+    },
+    "번역 기록 닫기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close the translation history"
+          }
+        }
+      }
+    },
+    "번역 기록 전체 복사" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy the whole translation history"
+          }
+        }
+      }
+    },
+    "번역 기록을 렌즈 옆에 보기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show the translation history next to the lens"
+          }
+        }
+      }
+    },
+    "번역 기억" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translation Memory"
+          }
+        }
+      }
+    },
+    "번역 기억 지우기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear Translation Memory"
+          }
+        }
+      }
+    },
+    "번역 다시 시작" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resume translation"
+          }
+        }
+      }
+    },
+    "번역 렌즈 만들기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Translation Lens"
+          }
+        }
+      }
+    },
+    "번역 복사" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy the translation"
+          }
+        }
+      }
+    },
+    "번역 언어" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translation language"
+          }
+        }
+      }
+    },
+    "번역 엔진" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translation Engine"
+          }
+        }
+      }
+    },
+    "번역 일시정지" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pause translation"
+          }
+        }
+      }
+    },
+    "번역 일시정지 (원문 보기, 인식·번역 멈춤)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pause translation (shows the original and stops reading and translating)"
+          }
+        }
+      }
+    },
+    "번역 일시정지됨" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translation paused"
+          }
+        }
+      }
+    },
+    "번역에 쓸 엔진을 고르세요. 나중에 설정(⌘,)에서 바꿀 수 있습니다." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose an engine to translate with. You can change it later in Settings (⌘,)."
+          }
+        }
+      }
+    },
+    "번역하는 중" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translating"
+          }
+        }
+      }
+    },
+    "번역한 글(원문과 번역)을 이 Mac에만 저장해, 같은 글을 다시 볼 때 바로 보여줍니다. 엔진·모델마다 최근 500개까지." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translated text (original and translation) is saved only on this Mac, so the same text appears instantly next time. Keeps the latest 500 per engine and model."
+          }
+        }
+      }
+    },
+    "번역한 내용이 여기에 차례로 쌓입니다." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translations will appear here in order."
+          }
+        }
+      }
+    },
+    "번역할 언어" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Language to translate into"
+          }
+        }
+      }
+    },
+    "복사" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy"
+          }
+        }
+      }
+    },
+    "선택한 영역의 텍스트가 번역을 위해 전송됩니다" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text in the selected area will be sent for translation"
+          }
+        }
+      }
+    },
+    "선택한 화면을 찾을 수 없습니다. 모니터 연결이 바뀌었다면 다시 시도하세요." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't find the selected display. If your displays changed, try again."
+          }
+        }
+      }
+    },
+    "설정" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings"
+          }
+        }
+      }
+    },
+    "설정…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings…"
+          }
+        }
+      }
+    },
+    "설치 확인 중…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checking installation…"
+          }
+        }
+      }
+    },
+    "설치됨 · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installed · %@"
+          }
+        }
+      }
+    },
+    "시스템 설정" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "System Default"
+          }
+        }
+      }
+    },
+    "시스템 설정 > 개인정보 보호 및 보안 > 화면 및 시스템 오디오 녹화에서 AI Translate를 허용한 뒤 앱을 다시 실행하세요." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow AI Translate in System Settings > Privacy & Security > Screen & System Audio Recording, then reopen the app."
+          }
+        }
+      }
+    },
+    "시스템 설정 열기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open System Settings"
+          }
+        }
+      }
+    },
+    "시작하기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get Started"
+          }
+        }
+      }
+    },
+    "앱을 다시 시작하면 바뀝니다." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Takes effect when the app restarts."
+          }
+        }
+      }
+    },
+    "언어" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Language"
+          }
+        }
+      }
+    },
+    "영상 자막: 원문 위에 번역을 함께 보기 (끄면 원문을 번역으로 가림)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Video captions: show the translation above the original (when off, the translation covers the original)"
+          }
+        }
+      }
+    },
+    "원문" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Original"
+          }
+        }
+      }
+    },
+    "원문 함께" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Original Too"
+          }
+        }
+      }
+    },
+    "전체 복사" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy All"
+          }
+        }
+      }
+    },
+    "종료" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quit"
+          }
+        }
+      }
+    },
+    "지우기" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete"
+          }
+        }
+      }
+    },
+    "지웠습니다" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cleared"
+          }
+        }
+      }
+    },
+    "취소" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
+          }
+        }
+      }
+    },
+    "텍스트를 인식하는 중…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recognizing text…"
+          }
+        }
+      }
+    },
+    "화면 기록 권한이 필요합니다" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Screen recording permission is required"
+          }
+        }
+      }
+    },
+    "화면에서 인식한 텍스트는 이 Mac에 설치된 %@으로 전송되어 번역됩니다. 캡처한 이미지는 전송하지 않으며, 텍스트 인식은 이 Mac 안에서만 처리합니다." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text recognized on screen is sent to %@ installed on this Mac for translation. Captured images are never sent, and text recognition happens only on this Mac."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

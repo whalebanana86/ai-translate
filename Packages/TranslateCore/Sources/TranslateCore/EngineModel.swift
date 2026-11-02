@@ -18,10 +18,14 @@ extension ClaudeCodeProvider {
     /// Claude Code가 그때의 최신 모델로 바꿔 주는 별칭 (`claude --help`: "an alias for the latest model"). 지금은 Haiku 5.5,
     /// Sonnet 5.5, Opus 5.5, Fable 5.1. 아래로 갈수록 정확하지만 느리고 요금제 사용량이 많다
     public static let models: [EngineModel] = [
-        EngineModel(id: "haiku", displayName: "Haiku", summary: "가장 빠르고 사용량이 적습니다 (기본)"),
-        EngineModel(id: "sonnet", displayName: "Sonnet", summary: "품질과 속도의 균형"),
-        EngineModel(id: "opus", displayName: "Opus", summary: "더 정확하지만 느리고 사용량이 많습니다"),
-        EngineModel(id: "fable", displayName: "Fable", summary: "가장 뛰어나지만 가장 느리고 사용량이 가장 많습니다"),
+        EngineModel(
+            id: "haiku", displayName: "Haiku", summary: String(localized: "가장 빠르고 사용량이 적습니다 (기본)", bundle: .module)),
+        EngineModel(id: "sonnet", displayName: "Sonnet", summary: String(localized: "품질과 속도의 균형", bundle: .module)),
+        EngineModel(
+            id: "opus", displayName: "Opus", summary: String(localized: "더 정확하지만 느리고 사용량이 많습니다", bundle: .module)),
+        EngineModel(
+            id: "fable", displayName: "Fable",
+            summary: String(localized: "가장 뛰어나지만 가장 느리고 사용량이 가장 많습니다", bundle: .module)),
     ]
 
     /// 모델별 시간 제한. Haiku는 측정(문단 28개 21초)으로 60초, 나머지는 측정하지 않았지만 더 느리므로 넉넉하게 둔다

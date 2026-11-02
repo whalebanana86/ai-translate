@@ -33,7 +33,7 @@ extension TranslationPayloadError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .segmentCountMismatch:
-            "번역 결과가 원문과 맞지 않습니다. 다시 시도하세요."
+            String(localized: "번역 결과가 원문과 맞지 않습니다. 다시 시도하세요.", bundle: .module)
         }
     }
 }

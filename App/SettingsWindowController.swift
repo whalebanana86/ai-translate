@@ -6,19 +6,21 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController {
     private let settings: EngineSettings
+    private let language: AppLanguageSettings
     private var window: NSWindow?
 
-    init(settings: EngineSettings) {
+    init(settings: EngineSettings, language: AppLanguageSettings) {
         self.settings = settings
+        self.language = language
     }
 
     func show(onboarding: Bool) {
         window?.close()
         let window = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = onboarding ? "AI Translate 시작하기" : "설정"
+        window.title = onboarding ? String(localized: "AI Translate 시작하기") : String(localized: "설정")
         window.isReleasedWhenClosed = false
         window.contentViewController = NSHostingController(
-            rootView: SettingsView(settings: settings, isOnboarding: onboarding) { [weak window] in
+            rootView: SettingsView(settings: settings, language: language, isOnboarding: onboarding) { [weak window] in
                 window?.close()
             })
         window.center()

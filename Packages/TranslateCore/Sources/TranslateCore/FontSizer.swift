@@ -30,9 +30,27 @@ public struct FontSizer: Sendable {
         return lineHeights.indices.map { LensGeometry.fontSize(lineHeight: chosen[$0] ?? 0, scale: scale) }
     }
 
-    /// 문단의 대표 줄 높이: 줄 높이의 중간값 (아래로 내려가는 글자가 있는 줄과 없는 줄이 섞여도 한쪽으로 쏠리지 않게)
+    /// 번역을 그리는 문단(`drawn`)만 크기를 묶고 기억한다. 그리지 않는 문단(숫자·버튼·작성자 줄·이미 대상 언어)은 자기 줄 높이로
+    /// 정한다: 작은 좋아요 줄·작성자 줄이 작은 크기를 먼저 만들고 1.2배 안의 본문이 그 크기로 끌려가 작게 그려졌다 (TASK-056)
+    public mutating func fontSizes(for lineHeights: [CGFloat], drawn: [Bool], scale: CGFloat) -> [CGFloat] {
+        let indices = lineHeights.indices.filter { drawn.indices.contains($0) && drawn[$0] }
+        var sizes = lineHeights.map { LensGeometry.fontSize(lineHeight: $0, scale: scale) }
+        for (index, size) in zip(indices, fontSizes(for: indices.map { lineHeights[$0] }, scale: scale)) {
+            sizes[index] = size
+        }
+        return sizes
+    }
+
+    /// 문단의 대표 줄 높이: 줄 높이의 중간값 (아래로 내려가는 글자가 있는 줄과 없는 줄이 섞여도 한쪽으로 쏠리지 않게).
+    /// 이모지를 붙인 줄은 이모지를 뺀 단어 영역 높이로 잰다: 이모지가 글자보다 높아 줄 영역으로 재면 글자가 커졌다 (TASK-055)
     public static func lineHeight(of block: TextBlock) -> CGFloat {
-        median(block.lines.map(\.boundingBox.height))
+        median(block.lines.map(textHeight(of:)))
+    }
+
+    private static func textHeight(of line: RecognizedLine) -> CGFloat {
+        guard !line.emojis.isEmpty else { return line.boundingBox.height }
+        let words = line.wordBoxes.filter { !line.emojis.contains($0) && !$0.isNull }
+        return words.isEmpty ? line.boundingBox.height : words.reduce(CGRect.null) { $0.union($1) }.height
     }
 
     private func closestRemembered(to height: CGFloat) -> CGFloat? {
