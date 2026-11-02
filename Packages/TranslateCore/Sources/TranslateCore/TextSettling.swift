@@ -24,25 +24,29 @@ public struct TextSettling: Sendable {
         firstSeen = seen
     }
 
-    /// 번역할 문단을 고른다. 다 나온 문단이 있으면 그것만, 없으면 기다린 지 `maxWait`가 지났을 때 기다리던 문단을 모두.
-    /// 고른 문단이 있으면 기다림을 끝내고, 다음 번역할 문단부터 다시 기다린다.
+    /// 번역할 문단을 고른다. 기다리는 동안 그 자리에 이어 보여줄 지난 번역이 없는 문단(`isCovered`가 false: 자막 사이 빈 구간
+    /// 뒤 첫 자막, 렌즈를 띄운 뒤 첫 자막)은 기다려 봐야 원문만 보이므로 바로 고른다(TASK-039). 가려진 문단은 다 나온 것만,
+    /// 다 나온 것이 없으면 기다린 지 `maxWait`가 지났을 때 모두. 고른 문단이 있으면 기다림을 끝내고 다음 문단부터 다시 기다린다.
     public mutating func ready<Element>(
-        _ missing: [Element], text: (Element) -> String, at now: ContinuousClock.Instant
+        _ missing: [Element], text: (Element) -> String, isCovered: (Element) -> Bool = { _ in true },
+        at now: ContinuousClock.Instant
     ) -> [Element] {
-        guard !missing.isEmpty else {
+        let uncovered = missing.filter { !isCovered($0) }
+        let covered = missing.filter(isCovered)
+        guard !covered.isEmpty else {
             waitingSince = nil
-            return []
+            return uncovered
         }
-        let settled = missing.filter { element in
+        let settled = covered.filter { element in
             firstSeen[text(element)].map { now - $0 > Self.settleTime } ?? false
         }
         let waitStart = waitingSince ?? now
         guard !settled.isEmpty || now - waitStart >= Self.maxWait else {
             waitingSince = waitStart
-            return []
+            return uncovered
         }
         waitingSince = nil
-        return settled.isEmpty ? missing : settled
+        return uncovered + (settled.isEmpty ? covered : settled)
     }
 
     /// 평소 화면으로 돌아가면(스크롤 등) 기억을 지운다

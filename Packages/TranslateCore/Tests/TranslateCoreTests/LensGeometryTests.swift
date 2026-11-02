@@ -127,6 +127,45 @@ struct LensGeometryTests {
         #expect(!LensGeometry.isCutOff(block(x: 0, y: 100, lines: 2), imageHeight: 600))
     }
 
+    // MARK: 자막
+
+    @Test func centersCaptionTranslationOnCaptionSpot() {
+        // 렌즈 600×200pt, 배율 2: 자막 (200~400, 150~170)pt. 기억한 자리는 이번 상자보다 4pt 위·2pt 오른쪽
+        let caption = block(x: 400, y: 300, width: 400, lineHeight: 40)
+        let anchor = CaptionAnchor(centerX: 604, bottom: 332, lineHeight: 40)
+
+        let frame = LensGeometry.paragraphFrames(
+            of: [caption], scale: 2, lensSize: CGSize(width: 600, height: 200), captions: [anchor])[0]
+
+        // 기억한 자리 가운데(302)를 중심으로 렌즈 끝 여백까지 넓히고, 아래 끝(166)에서 렌즈 위 끝까지 위로 쓴다.
+        // 가릴 원문은 이번에 인식한 상자 그대로
+        #expect(frame.isCentered)
+        #expect(frame.origin == CGPoint(x: 8, y: 0))
+        #expect(frame.width == 588)
+        #expect(frame.maxHeight == 166)
+        #expect(frame.sourceRect == CGRect(x: 200, y: 150, width: 200, height: 20))
+    }
+
+    @Test func captionTranslationGrowsUpToBlockAbove() {
+        let title = block(x: 300, y: 80, width: 600, lineHeight: 40)
+        let caption = block(x: 400, y: 300, width: 400, lineHeight: 40)
+        let anchor = CaptionAnchor(centerX: 600, bottom: 340, lineHeight: 40)
+
+        let frames = LensGeometry.paragraphFrames(
+            of: [title, caption], scale: 2, lensSize: CGSize(width: 600, height: 200), captions: [nil, anchor])
+
+        // 위 블록 아래 끝(60pt) + 여백 4 부터 자막 아래 끝(170)까지
+        #expect(!frames[0].isCentered)
+        #expect(frames[0].sourceRect.origin == frames[0].origin)
+        #expect(frames[1].origin.y == 64)
+        #expect(frames[1].maxHeight == 106)
+    }
+
+    @Test func captionFontSizeFollowsRememberedLineHeight() {
+        #expect(LensGeometry.fontSize(lineHeight: 40, scale: 2) == 18)
+        #expect(LensGeometry.fontSize(lineHeight: 10, scale: 2) == LensGeometry.fontSizeRange.lowerBound)
+    }
+
     // MARK: 번역 기록 패널
 
     private let screen = CGRect(x: 0, y: 0, width: 1600, height: 1000)
@@ -158,5 +197,27 @@ struct LensGeometryTests {
 
         #expect(LensGeometry.transcriptFrame(for: top, in: screen) == CGRect(x: 808, y: 740, width: 320, height: 260))
         #expect(LensGeometry.transcriptFrame(for: narrow, in: screen).minX == 548)
+    }
+
+    @Test func usesTranscriptSizeChosenByUser() {
+        let lens = CGRect(x: 200, y: 100, width: 800, height: 100)
+
+        let frame = LensGeometry.transcriptFrame(for: lens, in: screen, size: CGSize(width: 420, height: 600))
+        // 화면보다 크면 화면 안으로 자른다
+        let tooTall = LensGeometry.transcriptFrame(for: lens, in: screen, size: CGSize(width: 420, height: 1400))
+
+        #expect(frame == CGRect(x: 1008, y: 100, width: 420, height: 600))
+        #expect(tooTall.height == 1000)
+        #expect(tooTall.minY == 0)
+    }
+
+    @Test func resizesTranscriptDownToItsOwnMinimum() {
+        let panel = CGRect(x: 1000, y: 100, width: 320, height: 260)
+
+        let shrunk = LensGeometry.resized(
+            panel, by: CGSize(width: -1000, height: 1000), minimum: LensGeometry.minimumTranscriptSize)
+
+        // 왼쪽 위(1000, 360)는 그대로
+        #expect(shrunk == CGRect(x: 1000, y: 200, width: 220, height: 160))
     }
 }

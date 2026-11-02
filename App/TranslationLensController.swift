@@ -8,6 +8,7 @@ import TranslateCore
 final class TranslationLensController {
     private static let languageKey = "TargetLanguage"
     private static let transcriptVisibleKey = "TranscriptVisible"
+    private static let transcriptSizeKey = "TranscriptSize"
 
     private let settings: EngineSettings
     private let overlay = SelectionOverlayController()
@@ -45,12 +46,16 @@ final class TranslationLensController {
         lens?.close()
         let session = LensSession(
             frame: selection.globalRect, language: language,
-            showsTranscript: UserDefaults.standard.bool(forKey: Self.transcriptVisibleKey), capturer: capturer,
+            showsTranscript: UserDefaults.standard.bool(forKey: Self.transcriptVisibleKey),
+            transcriptSize: Self.savedTranscriptSize, capturer: capturer,
             engine: settings.engine ?? .claudeCode, memoryStore: memoryStore
         ) { [settings] in try await settings.makeProvider() }
         session.onLanguageChange = { [weak self] language in self?.language = language }
         session.onTranscriptVisibilityChange = { visible in
             UserDefaults.standard.set(visible, forKey: Self.transcriptVisibleKey)
+        }
+        session.onTranscriptSizeChange = { size in
+            UserDefaults.standard.set([Double(size.width), Double(size.height)], forKey: Self.transcriptSizeKey)
         }
         session.onClose = { [weak self, weak session] in
             if self?.lens === session {
@@ -59,6 +64,14 @@ final class TranslationLensController {
         }
         lens = session
         session.show()
+    }
+
+    /// 사용자가 마지막으로 바꾼 번역 기록 패널 크기
+    private static var savedTranscriptSize: CGSize? {
+        guard let size = UserDefaults.standard.array(forKey: transcriptSizeKey) as? [Double], size.count == 2 else {
+            return nil
+        }
+        return CGSize(width: size[0], height: size[1])
     }
 
     /// 설정에서 엔진을 바꾸면 열린 렌즈가 새 엔진으로 다시 번역한다. 외부로 보내는 엔진이면 먼저 고지한다
@@ -93,6 +106,7 @@ final class LensSession {
 
     var onLanguageChange: ((TargetLanguage) -> Void)?
     var onTranscriptVisibilityChange: ((Bool) -> Void)?
+    var onTranscriptSizeChange: ((CGSize) -> Void)?
     var onClose: (() -> Void)?
 
     private let model: LensModel
@@ -105,6 +119,12 @@ final class LensSession {
     /// 렌즈 옆 번역 기록 (도구 막대에서 켰을 때만 보인다)
     private let transcriptPanel: LensPanel
     private var transcript = TranslationTranscript()
+    /// 사용자가 옮긴 번역 기록 패널의 렌즈 기준 자리(패널 원점 - 렌즈 원점). 없으면 렌즈 옆 기본 자리
+    private var transcriptOffset: CGPoint?
+    /// 사용자가 바꾼 번역 기록 패널 크기. 없으면 기본 크기
+    private var transcriptSize: CGSize?
+    /// 번역 기록 패널을 끄는 중이면 시작 시점의 마우스 위치와 패널 자리
+    private var transcriptDrag: (mouse: CGPoint, frame: CGRect)?
 
     /// 선택된 번역 엔진을 만든다 (설정이 엔진별로 기억해 둔다)
     private let makeProvider: @MainActor () async throws -> any TranslationProvider
@@ -138,6 +158,12 @@ final class LensSession {
     private var carryOver = CarryOver()
     /// 계속 바뀌는 화면(자막)에서 글이 다 나온 뒤 번역한다
     private var settling = TextSettling()
+    /// 지난 번역을 이어 보여주고 있는 문단의 원문. 이어 보여줄 번역이 없는 문단은 다 나오기를 기다리지 않고 바로 번역한다
+    private var carriedTexts: Set<String> = []
+    /// 계속 바뀌는 화면에서 가운데 정렬 자막을 찾아 번역을 자막 자리의 가운데·아래에 맞춘다
+    private var captionDetector = CaptionDetector()
+    /// `blocks`와 같은 순서. 가운데 정렬 자막이면 번역을 그릴 자리
+    private var captions: [CaptionAnchor?] = []
     /// 중간 글로 화면을 다시 그리는 최소 간격 (생성은 초당 약 100토큰)
     private static let partialRefreshInterval: Duration = .milliseconds(50)
     /// 이동·크기 조절 중이면 시작 시점의 마우스 위치와 렌즈 영역
@@ -160,11 +186,13 @@ final class LensSession {
     private static let log = Logger(subsystem: "com.example.AITranslate", category: "pipeline")
 
     init(
-        frame: CGRect, language: TargetLanguage, showsTranscript: Bool, capturer: ScreenCapturer,
+        frame: CGRect, language: TargetLanguage, showsTranscript: Bool, transcriptSize: CGSize?,
+        capturer: ScreenCapturer,
         engine: TranslationEngine, memoryStore: TranslationMemoryStore,
         makeProvider: @escaping @MainActor () async throws -> any TranslationProvider
     ) {
         self.frame = frame
+        self.transcriptSize = transcriptSize
         self.capturer = capturer
         self.makeProvider = makeProvider
         self.memoryStore = memoryStore
@@ -187,6 +215,16 @@ final class LensSession {
         model.onPeekChange = { [weak self] peeking in self?.bodyPanel.alphaValue = peeking ? 0 : 1 }
         model.onTranscriptVisibilityChange = { [weak self] visible in self?.showTranscript(visible) }
         model.onPauseChange = { [weak self] paused in self?.pauseDidChange(paused) }
+        model.onTranscriptMove = { [weak self] phase in
+            self?.dragTranscript(phase, resizing: false) { start, drag in
+                start.offsetBy(dx: drag.width, dy: drag.height)
+            }
+        }
+        model.onTranscriptResize = { [weak self] phase in
+            self?.dragTranscript(phase, resizing: true) { start, drag in
+                LensGeometry.resized(start, by: drag, minimum: LensGeometry.minimumTranscriptSize)
+            }
+        }
         model.onClose = { [weak self] in self?.close() }
         model.onMove = { [weak self] phase in
             self?.interact(phase) { start, drag in start.offsetBy(dx: drag.width, dy: drag.height) }
@@ -303,8 +341,14 @@ final class LensSession {
             colors = sampled
             if tracker.isKeepingUp {
                 settling.observe(recognized.map(\.text), at: .now)
+                captions = captionDetector.detect(recognized)
             } else {
                 settling.reset()
+                captionDetector.reset()
+                captions = []
+            }
+            if model.isWatchingVideo != tracker.isKeepingUp {
+                model.isWatchingVideo = tracker.isKeepingUp
             }
             scale = selection.scale
             imageHeight = CGFloat(image.height)
@@ -441,7 +485,9 @@ final class LensSession {
         }
         // 자막처럼 글이 바뀌는 화면에서는 글이 다 나온 뒤 번역한다. 기다리는 동안은 같은 자리의 지난 번역을 이어 보여주고,
         // 다음 인식 때 다시 고른다
-        let ready = tracker.isKeepingUp ? settling.ready(missing, text: \.text, at: .now) : missing
+        let ready =
+            tracker.isKeepingUp
+            ? settling.ready(missing, text: \.text, isCovered: { carriedTexts.contains($0.text) }, at: .now) : missing
         guard !missing.isEmpty else {
             model.status = .watching
             if changeStartedAt != nil, !model.isOutdated {
@@ -551,15 +597,21 @@ final class LensSession {
     }
 
     private func refreshParagraphs() {
-        let frames = LensGeometry.paragraphFrames(of: blocks, scale: scale, lensSize: frame.size)
+        let frames = LensGeometry.paragraphFrames(of: blocks, scale: scale, lensSize: frame.size, captions: captions)
         var contents = blocks.map { memory.content(of: $0, in: model.language) }
         recordTranscript(contents)
         // 계속 바뀌는 화면에서만 잇는다. 스크롤한 페이지에서 이으면 다른 문단의 번역이 보인다.
         // 이을 번역이 있으면 생성 중 번역보다 먼저 보여준다 (자막 글이 바뀔 때마다 번역이 처음부터 다시 써지지 않게)
         if tracker.isKeepingUp {
-            contents = carryOver.apply(to: contents, boxes: blocks.map(\.boundingBox), at: .now)
+            let carried = carryOver.apply(to: contents, boxes: blocks.map(\.boundingBox), at: .now)
+            carriedTexts = Set(
+                zip(blocks, zip(contents, carried)).compactMap { block, pair in
+                    pair.0 == .pending && pair.1 != .pending ? block.text : nil
+                })
+            contents = carried
         } else {
             carryOver.reset()
+            carriedTexts = []
         }
         model.paragraphs = zip(blocks, frames).enumerated().map { index, pair in
             let (block, paragraphFrame) = pair
@@ -567,9 +619,12 @@ final class LensSession {
             if case .pending = content, let partial = partials[block.text], !partial.isEmpty {
                 content = .translated(partial)
             }
+            // 자막은 기억한 줄 높이로 글자 크기를 정한다 (인식마다 줄 높이가 달라 글자 크기가 흔들렸다)
+            let caption = captions.indices.contains(index) ? captions[index] : nil
             return LensModel.Paragraph(
                 id: index, content: content, frame: paragraphFrame,
-                fontSize: LensGeometry.fontSize(of: block, scale: scale),
+                fontSize: caption.map { LensGeometry.fontSize(lineHeight: $0.lineHeight, scale: scale) }
+                    ?? LensGeometry.fontSize(of: block, scale: scale),
                 colors: colors.indices.contains(index) ? colors[index] : .plain)
         }
     }
@@ -620,7 +675,42 @@ final class LensSession {
             CGRect(
                 x: frame.maxX - Self.handleSize - 2, y: frame.minY + 2, width: Self.handleSize, height: Self.handleSize),
             display: true)
-        transcriptPanel.setFrame(LensGeometry.transcriptFrame(for: frame, in: visibleFrame), display: true)
+        transcriptPanel.setFrame(transcriptFrame(in: visibleFrame), display: true)
+    }
+
+    /// 사용자가 옮겼으면 렌즈 기준 그 자리, 아니면 렌즈 옆 기본 자리
+    private func transcriptFrame(in visibleFrame: CGRect) -> CGRect {
+        guard let transcriptOffset else {
+            return LensGeometry.transcriptFrame(for: frame, in: visibleFrame, size: transcriptSize)
+        }
+        let size = transcriptSize ?? transcriptPanel.frame.size
+        return CGRect(
+            x: frame.minX + transcriptOffset.x, y: frame.minY + transcriptOffset.y, width: size.width,
+            height: size.height)
+    }
+
+    /// 번역 기록 패널 옮기기·크기 바꾸기. 끝나면 렌즈 기준 자리를 기억해 렌즈를 옮겨도 같은 간격으로 따라가게 하고,
+    /// 크기를 바꿨으면 그 크기를 기억한다 (옮기기만 했으면 기본 크기를 그대로 둔다)
+    private func dragTranscript(
+        _ phase: LensModel.DragPhase, resizing: Bool, transform: (CGRect, CGSize) -> CGRect
+    ) {
+        let mouse = NSEvent.mouseLocation
+        switch phase {
+        case .changed:
+            let start = transcriptDrag ?? (mouse, transcriptPanel.frame)
+            transcriptDrag = start
+            let moved = transform(start.frame, CGSize(width: mouse.x - start.mouse.x, height: mouse.y - start.mouse.y))
+            transcriptPanel.setFrame(moved, display: true)
+        case .ended:
+            guard transcriptDrag != nil else { return }
+            transcriptDrag = nil
+            let panel = transcriptPanel.frame
+            transcriptOffset = CGPoint(x: panel.minX - frame.minX, y: panel.minY - frame.minY)
+            if resizing {
+                transcriptSize = panel.size
+                onTranscriptSizeChange?(panel.size)
+            }
+        }
     }
 
     /// 일시정지하면 진행 중 요청을 멈추고 번역을 숨긴다. 다시 시작하면 지금 화면부터 다시 인식한다 (기억한 번역은 바로 보인다)
