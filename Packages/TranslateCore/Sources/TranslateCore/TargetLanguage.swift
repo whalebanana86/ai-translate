@@ -27,6 +27,14 @@ public enum TargetLanguage: String, CaseIterable, Codable, Identifiable, Sendabl
         }
     }
 
+    /// 영상 자막 번역 문체 지시. 자막을 하나씩 따로 번역해 ~습니다·~이다·~해요가 섞였다(TASK-048, 사용자 선택: 합니다체, 영상 자막만)
+    public var subtitleStyle: String? {
+        switch self {
+        case .korean: "Write every Korean translation in the formal polite speech level (합니다체)."
+        default: nil
+        }
+    }
+
     /// 화면에 보이는 자국어 이름
     public var displayName: String {
         switch self {

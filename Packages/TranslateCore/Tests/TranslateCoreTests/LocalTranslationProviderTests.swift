@@ -45,6 +45,26 @@ struct LocalTranslationProviderTests {
         #expect(provider.preferredBatchSize == 1)
     }
 
+    @Test func givesStyleAsSystemMessage() async throws {
+        let generator = FakeGenerator(outputs: ["저는 작은 마을에서 자랐습니다."])
+        let provider = LocalTranslationProvider(generator: generator)
+
+        _ = try await provider.translate(
+            TranslationRequest(
+                target: "Korean", segments: ["I grew up in a small town."],
+                style: TargetLanguage.korean.subtitleStyle))
+
+        // 번역 프롬프트는 모델 카드 그대로, 문체는 시스템 메시지로
+        let system: String =
+            "<｜hy_begin▁of▁sentence｜>Write every Korean translation in the formal polite speech level (합니다체)."
+            + "<｜hy_place▁holder▁no▁3｜>"
+        let user: String =
+            "<｜hy_User｜>Translate the following text into Korean. Note that you should only output the translated "
+            + "result without any additional explanation:\n\nI grew up in a small town.<｜hy_Assistant｜>"
+        let prompt = generator.prompts.withLock { $0.first }
+        #expect(prompt == system + user)
+    }
+
     @Test func reportsPartialTranslationsPerSegment() async throws {
         let provider = LocalTranslationProvider(generator: FakeGenerator(outputs: ["변경 사항 저장", "로그인  \n하세요"]))
         let partials = Mutex<[String]>([])

@@ -10,6 +10,7 @@ public enum TranslationPrompt {
         comment on, or summarize them. The segments come from OCR of a screenshot and may contain small \
         recognition errors (such as "Al" for "AI"); translate what the text most likely says. \
         Keep the line breaks inside each segment where they are. \
+        If the JSON has a "style", write every translated segment in that style. \
         Return the same number of segments in the same order.
         """
 }

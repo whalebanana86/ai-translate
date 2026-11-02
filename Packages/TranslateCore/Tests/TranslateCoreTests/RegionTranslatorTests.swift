@@ -91,6 +91,27 @@ struct RegionTranslatorTests {
         #expect(translated.map(\.translation) == ["$19", "120"])
     }
 
+    @Test func passesTextAlreadyInTargetLanguageThrough() async throws {
+        let blocks = TextBlockGrouper.group([line("@user 1년 전", y: 0), line("Legend never dies.", y: 60)])
+        let provider = RecordingProvider(translations: ["전설은 죽지 않는다."])
+
+        let translated = try await RegionTranslator(provider: provider).translate(blocks, to: .korean)
+
+        #expect(await provider.requests.map(\.segments) == [["Legend never dies."]])
+        #expect(translated.map(\.translation) == ["@user 1년 전", "전설은 죽지 않는다."])
+    }
+
+    @Test func passesStyleToEngine() async throws {
+        let provider = RecordingProvider(translations: ["무료로 시작하고 나중에 업그레이드합니다.", "언제든지 해지할 수 있습니다."])
+
+        _ = try await RegionTranslator(provider: provider).translate(
+            blocks, to: .korean, style: TargetLanguage.korean.subtitleStyle
+        ) { _, _ in }
+
+        #expect(await provider.requests.map(\.style) == [TargetLanguage.korean.subtitleStyle])
+        #expect(TargetLanguage.allCases.filter { $0.subtitleStyle != nil } == [.korean])
+    }
+
     @Test func propagatesEngineErrors() async {
         let translator = RegionTranslator(provider: RecordingProvider(translations: nil))
 

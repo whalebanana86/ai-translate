@@ -29,6 +29,25 @@ struct TranslationMemoryTests {
         #expect(memory.content(of: block("Start free."), in: .english) == .pending)
     }
 
+    @Test func doesNotTranslateTextAlreadyInTargetLanguage() {
+        let blocks = [block("답글 4개"), block("Cancel anytime.")]
+        let memory = TranslationMemory()
+
+        #expect(memory.missing(in: blocks, for: .korean).map(\.text) == ["Cancel anytime."])
+        #expect(memory.content(of: block("답글 4개"), in: .korean) == .original("답글 4개"))
+        // 다른 언어로는 번역한다
+        #expect(memory.missing(in: blocks, for: .english).map(\.text) == ["답글 4개"])
+    }
+
+    @Test func hidesOriginalWhileTranslatingAndAfter() {
+        #expect(BlockContent.translated("번역").hidesOriginal(canTranslate: true))
+        #expect(BlockContent.pending.hidesOriginal(canTranslate: true))
+        #expect(!BlockContent.original("$19").hidesOriginal(canTranslate: true))
+        // 엔진이 실패하면 기다려도 번역이 오지 않으므로 원문을 보인다
+        #expect(!BlockContent.pending.hidesOriginal(canTranslate: false))
+        #expect(BlockContent.translated("번역").hidesOriginal(canTranslate: false))
+    }
+
     @Test func forgetsOldestBeyondCapacity() {
         var memory = TranslationMemory(capacity: 2)
         memory.store("가", of: "a", in: .korean)

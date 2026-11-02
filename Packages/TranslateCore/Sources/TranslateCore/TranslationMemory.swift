@@ -56,17 +56,18 @@ public struct TranslationMemory: Sendable {
         }
     }
 
-    /// 번역해야 하는데 아직 기억에 없는 문단. 같은 글은 하나만 돌려준다.
+    /// 번역해야 하는데 아직 기억에 없는 문단. 같은 글은 하나만 돌려준다. 이미 대상 언어인 문단은 번역하지 않는다
     public func missing(in blocks: [TextBlock], for language: TargetLanguage) -> [TextBlock] {
         var seen = Set<String>()
         return blocks.filter { block in
-            block.isTranslatable && translation(of: block.text, in: language) == nil && seen.insert(block.text).inserted
+            translation(of: block.text, in: language) == nil && block.needsTranslation(to: language)
+                && seen.insert(block.text).inserted
         }
     }
 
     /// 렌즈에 보여줄 문단 상태.
     public func content(of block: TextBlock, in language: TargetLanguage) -> BlockContent {
-        guard block.isTranslatable else { return .original(block.text) }
+        guard block.needsTranslation(to: language) else { return .original(block.text) }
         return translation(of: block.text, in: language).map { .translated($0) } ?? .pending
     }
 }
@@ -77,6 +78,16 @@ public enum BlockContent: Equatable, Sendable {
     case translated(String)
     /// 번역을 기다리는 중. 그리지 않아 원문이 그대로 보인다
     case pending
-    /// 숫자·기호처럼 번역할 필요가 없다. 그리지 않고 복사할 때만 원문을 넣는다
+    /// 숫자·기호나 이미 대상 언어로 쓰인 글처럼 번역할 필요가 없다. 그리지 않고 복사할 때만 원문을 넣는다
     case original(String)
+
+    /// 원문을 가릴지. 번역한 문단과 번역을 기다리는 문단은 가린다: 기다리는 동안 원문이 보이다가 번역으로 바뀌었다(TASK-047).
+    /// 번역이 올 수 없으면(`canTranslate` false: 엔진·번역·인식 실패) 기다리는 문단은 원문을 보인다
+    public func hidesOriginal(canTranslate: Bool) -> Bool {
+        switch self {
+        case .translated: true
+        case .pending: canTranslate
+        case .original: false
+        }
+    }
 }

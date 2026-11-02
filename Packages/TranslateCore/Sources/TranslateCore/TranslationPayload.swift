@@ -6,10 +6,13 @@ import Foundation
 public struct TranslationRequest: Codable, Equatable, Sendable {
     public var target: String
     public var segments: [String]
+    /// 문체 지시(영어 문장). 앱이 정하며 페이지 글이 아니다. nil이면 엔진 기본 문체이고 JSON에도 넣지 않는다
+    public var style: String?
 
-    public init(target: String, segments: [String]) {
+    public init(target: String, segments: [String], style: String? = nil) {
         self.target = target
         self.segments = segments
+        self.style = style
     }
 }
 

@@ -36,7 +36,7 @@ public struct LocalTranslationProvider: TranslationProvider {
         for (index, segment) in request.segments.enumerated() {
             try Task.checkCancellation()
             let output = try await generator.generate(
-                prompt: HyMTPrompt.prompt(for: segment, target: request.target),
+                prompt: HyMTPrompt.prompt(for: segment, target: request.target, style: request.style),
                 maxTokens: HyMTPrompt.maxTokens(for: segment)
             ) { partial in
                 onPartial(index, HyMTPrompt.clean(partial))
@@ -52,11 +52,17 @@ public enum HyMTPrompt {
     static let begin = "<｜hy_begin▁of▁sentence｜>"
     static let user = "<｜hy_User｜>"
     static let assistant = "<｜hy_Assistant｜>"
+    /// 채팅 형식에서 시스템 메시지 끝 (모델의 chat_template)
+    static let systemEnd = "<｜hy_place▁holder▁no▁3｜>"
 
-    /// `target`은 영어 언어 이름 (`TargetLanguage.promptName`)
-    public static func prompt(for text: String, target: String) -> String {
-        begin + user + "Translate the following text into \(target). Note that you should only output the translated "
-            + "result without any additional explanation:\n\n" + neutralized(text) + assistant
+    /// `target`은 영어 언어 이름 (`TargetLanguage.promptName`). 문체(`style`)는 시스템 메시지로 준다: 번역 프롬프트에 지시를
+    /// 더하면 짧은 글("Um", "No.")을 대화로 알아듣고 지시에 답하거나 지시를 번역해 내놓았다. 시스템 메시지로 주면 평서문 50개가
+    /// 모두 합니다체였고 새어 나온 적이 없었다 (TASK-048 측정)
+    public static func prompt(for text: String, target: String, style: String? = nil) -> String {
+        begin + (style.map { $0 + systemEnd } ?? "") + user
+            + "Translate the following text into \(target). Note that you "
+            + "should only output the translated result without any additional explanation:\n\n" + neutralized(text)
+            + assistant
     }
 
     /// 페이지 글에 이 모델의 특수 토큰 문자열(`<｜hy_…｜>`)이 있으면 토크나이저가 진짜 특수 토큰으로 읽어 대화 형식을
