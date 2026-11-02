@@ -4,6 +4,31 @@ import Testing
 @testable import TranslateCore
 
 struct FontSizerTests {
+    @Test func ignoresParagraphsThatAreNotDrawn() {
+        var sizer = FontSizer()
+
+        // README 그림 장면: 좋아요 줄 26·29px, 작성자 줄 31px(번역 안 함), 17pt 본문 33px
+        let sizes = sizer.fontSizes(for: [26, 29, 31, 33], drawn: [false, false, false, true], scale: 2)
+
+        // 본문은 자기 줄 높이 크기 (예전에는 작은 줄과 묶여 13.2pt)
+        #expect(abs(sizes[3] - LensGeometry.fontSize(lineHeight: 33, scale: 2)) < 0.001)
+        #expect(sizes[0] == LensGeometry.fontSize(lineHeight: 26, scale: 2))
+        // 그리지 않는 문단의 크기는 기억하지 않는다: 기억했다면 26~31px를 묶은 29px 크기를 다음 26px 문단이 받는다
+        #expect(sizer.fontSizes(for: [26], scale: 2) == [LensGeometry.fontSize(lineHeight: 26, scale: 2)])
+    }
+
+    @Test func measuresLineWithoutAttachedEmoji() {
+        // 글자 33px 줄 끝에 41px 이모지를 붙인 줄 (EmojiFinder 결과)
+        let words = [CGRect(x: 0, y: 4, width: 80, height: 33), CGRect(x: 90, y: 4, width: 60, height: 33)]
+        let emoji = CGRect(x: 160, y: 0, width: 40, height: 41)
+        let line = RecognizedLine(
+            text: "Mine runs 🟦", confidence: 1, boundingBox: CGRect(x: 0, y: 0, width: 200, height: 41),
+            wordBoxes: words + [emoji], emojis: [emoji])
+        let block = TextBlock(lines: [line], text: line.text, boundingBox: line.boundingBox)
+
+        #expect(FontSizer.lineHeight(of: block) == 33)
+    }
+
     @Test func drawsCommentsOfSameSizeAtOneSizeAndTitleLarger() {
         var sizer = FontSizer()
 

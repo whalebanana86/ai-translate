@@ -10,7 +10,8 @@ extension KeyboardShortcuts.Name {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = EngineSettings()
     private lazy var lens = TranslationLensController(settings: settings)
-    private lazy var settingsWindow = SettingsWindowController(settings: settings)
+    private let language = AppLanguageSettings()
+    private lazy var settingsWindow = SettingsWindowController(settings: settings, language: language)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         KeyboardShortcuts.onKeyUp(for: .translateRegion) { [weak self] in

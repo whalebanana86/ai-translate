@@ -5,6 +5,8 @@ options:
   deploymentTarget:
     macOS: "15.0"
   createIntermediateGroups: true
+  # 화면 글의 원문 언어 (TASK-058, 영어는 Localizable.xcstrings의 번역). 시스템 언어가 한국어·영어가 아니면 이 언어로 보인다
+  developmentLanguage: ko
 
 packages:
   TranslateCore:
@@ -28,6 +30,9 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
     MACOSX_DEPLOYMENT_TARGET: "15.0"
+    # 화면 글을 컴파일러로 뽑아 문자열 카탈로그(Localizable.xcstrings)와 맞춘다 (TASK-058)
+    SWIFT_EMIT_LOC_STRINGS: YES
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
 
 targets:
   AITranslate:

@@ -22,11 +22,11 @@ enum ScreenRecordingPermission {
         }
 
         let alert = NSAlert()
-        alert.messageText = "화면 기록 권한이 필요합니다"
-        alert.informativeText =
-            "시스템 설정 > 개인정보 보호 및 보안 > 화면 및 시스템 오디오 녹화에서 AI Translate를 허용한 뒤 앱을 다시 실행하세요."
-        alert.addButton(withTitle: "시스템 설정 열기")
-        alert.addButton(withTitle: "취소")
+        alert.messageText = String(localized: "화면 기록 권한이 필요합니다")
+        alert.informativeText = String(
+            localized: "시스템 설정 > 개인정보 보호 및 보안 > 화면 및 시스템 오디오 녹화에서 AI Translate를 허용한 뒤 앱을 다시 실행하세요.")
+        alert.addButton(withTitle: String(localized: "시스템 설정 열기"))
+        alert.addButton(withTitle: String(localized: "취소"))
         NSApp.activate()
         if alert.runModal() == .alertFirstButtonReturn, let settingsURL {
             NSWorkspace.shared.open(settingsURL)

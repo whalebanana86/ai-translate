@@ -32,17 +32,17 @@ extension TranslationEngineError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .executableNotFound(let name):
-            "\(name) CLI를 찾을 수 없습니다. 설치 여부와 설정의 CLI 경로를 확인하세요."
+            String(localized: "\(name) CLI를 찾을 수 없습니다. 설치 여부와 설정의 CLI 경로를 확인하세요.", bundle: .module)
         case .timedOut:
-            "번역 시간이 초과됐습니다. 다시 시도하세요."
+            String(localized: "번역 시간이 초과됐습니다. 다시 시도하세요.", bundle: .module)
         case .notLoggedIn:
-            "번역 엔진에 로그인되어 있지 않습니다. 터미널에서 로그인한 뒤 다시 시도하세요."
+            String(localized: "번역 엔진에 로그인되어 있지 않습니다. 터미널에서 로그인한 뒤 다시 시도하세요.", bundle: .module)
         case .usageLimitReached:
-            "번역 엔진 사용량 한도에 도달했습니다. 잠시 후 다시 시도하세요."
+            String(localized: "번역 엔진 사용량 한도에 도달했습니다. 잠시 후 다시 시도하세요.", bundle: .module)
         case .engineFailed(let message):
-            "번역 엔진 오류: \(message)"
+            String(localized: "번역 엔진 오류: \(message)", bundle: .module)
         case .invalidOutput:
-            "번역 엔진의 응답을 해석할 수 없습니다."
+            String(localized: "번역 엔진의 응답을 해석할 수 없습니다.", bundle: .module)
         }
     }
 }

@@ -364,6 +364,7 @@ struct LensToolbarView: View {
             }
             .labelsHidden()
             .fixedSize()
+            .help("번역할 언어")
             Button(
                 model.isPaused ? "번역 다시 시작" : "번역 일시정지",
                 systemImage: model.isPaused ? "play.fill" : "pause.fill"
@@ -425,8 +426,12 @@ struct LensToolbarView: View {
 
     @ViewBuilder private var activity: some View {
         switch model.status {
-        case .recognizing, .translating:
+        case .recognizing:
             ProgressView().controlSize(.mini)
+                .help("렌즈 아래 글을 인식하는 중")
+        case .translating:
+            ProgressView().controlSize(.mini)
+                .help("번역하는 중")
         case .failed(let message):
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
@@ -584,6 +589,8 @@ final class LensPanel: NSPanel {
         backgroundColor = .clear
         hasShadow = true
         ignoresMouseEvents = passesMouseThrough
+        // 렌즈를 쓰는 동안 앱은 비활성 상태라(패널이 앱을 활성화하지 않음) 이것이 없으면 툴팁이 뜨지 않는다 (TASK-057)
+        allowsToolTipsWhenApplicationIsInactive = true
         contentView = content
     }
 

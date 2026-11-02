@@ -11,7 +11,7 @@ final class ScreenCapturer {
         case displayNotFound
 
         var errorDescription: String? {
-            "선택한 화면을 찾을 수 없습니다. 모니터 연결이 바뀌었다면 다시 시도하세요."
+            String(localized: "선택한 화면을 찾을 수 없습니다. 모니터 연결이 바뀌었다면 다시 시도하세요.")
         }
     }
 

@@ -1,0 +1,216 @@
+{
+  "sourceLanguage" : "ko",
+  "strings" : {
+    "%@ CLI를 찾을 수 없습니다. 설치 여부와 설정의 CLI 경로를 확인하세요." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't find the %@ CLI. Check that it's installed and the CLI path in Settings."
+          }
+        }
+      }
+    },
+    "Claude Code를 통해 Anthropic" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anthropic through Claude Code"
+          }
+        }
+      }
+    },
+    "Codex CLI를 통해 OpenAI" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenAI through the Codex CLI"
+          }
+        }
+      }
+    },
+    "가장 뛰어나지만 가장 느리고 사용량이 가장 많습니다" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Most capable, but the slowest and uses the most"
+          }
+        }
+      }
+    },
+    "가장 빠르고 사용량이 적습니다 (기본)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fastest and uses the least (default)"
+          }
+        }
+      }
+    },
+    "더 정확하지만 느리고 사용량이 많습니다" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More accurate, but slower and uses more"
+          }
+        }
+      }
+    },
+    "로컬 LLM (Hy-MT2)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local LLM (Hy-MT2)"
+          }
+        }
+      }
+    },
+    "로컬 LLM은 Apple Silicon(M1 이상) Mac에서만 쓸 수 있습니다. 설정(⌘,)에서 다른 엔진을 고르세요." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The local LLM runs only on Macs with Apple silicon (M1 or later). Choose another engine in Settings (⌘,)."
+          }
+        }
+      }
+    },
+    "모델 파일(%@)을 받지 못했습니다 (HTTP %lld)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't download the model file (%@) (HTTP %lld)."
+          }
+        }
+      }
+    },
+    "받은 모델 파일(%@)이 공개된 파일과 다릅니다. 다시 받아 주세요." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The downloaded model file (%@) doesn't match the published file. Download it again."
+          }
+        }
+      }
+    },
+    "번역 결과가 원문과 맞지 않습니다. 다시 시도하세요." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The translation doesn't match the original. Try again."
+          }
+        }
+      }
+    },
+    "번역 모델을 아직 받지 않았습니다. 설정(⌘,)의 로컬 LLM에서 '모델 받기'를 누르세요." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The translation model hasn’t been downloaded yet. Click “Download Model” under Local LLM in Settings (⌘,)."
+          }
+        }
+      }
+    },
+    "번역 시간이 초과됐습니다. 다시 시도하세요." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translation timed out. Try again."
+          }
+        }
+      }
+    },
+    "번역 엔진 사용량 한도에 도달했습니다. 잠시 후 다시 시도하세요." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The translation engine’s usage limit was reached. Try again later."
+          }
+        }
+      }
+    },
+    "번역 엔진 오류: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translation engine error: %@"
+          }
+        }
+      }
+    },
+    "번역 엔진에 로그인되어 있지 않습니다. 터미널에서 로그인한 뒤 다시 시도하세요." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You’re not signed in to the translation engine. Sign in from Terminal, then try again."
+          }
+        }
+      }
+    },
+    "번역 엔진의 응답을 해석할 수 없습니다." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t read the translation engine’s response."
+          }
+        }
+      }
+    },
+    "이 Mac 안에서 번역합니다. 가장 빠르고(문단당 0.1~1초) 글이 밖으로 나가지 않습니다. 번역 모델(약 1GB)을 받아야 합니다." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translates on this Mac. The fastest (0.1–1 s per paragraph), and text never leaves your Mac. Requires downloading the translation model (about 1 GB)."
+          }
+        }
+      }
+    },
+    "이 Mac에 설치된 Claude Code로 번역합니다. 기본 모델(Haiku)은 한 번에 3~6초 걸립니다. Claude 요금제 사용량이 쓰입니다." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translates with Claude Code installed on this Mac. The default model (Haiku) takes 3–6 s per request. Uses your Claude plan’s usage."
+          }
+        }
+      }
+    },
+    "이 Mac에 설치된 Codex CLI로 번역합니다. 한 번에 7~9초 걸리고 ChatGPT 요금제 사용량이 쓰입니다." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translates with the Codex CLI installed on this Mac. Takes 7–9 s per request and uses your ChatGPT plan’s usage."
+          }
+        }
+      }
+    },
+    "품질과 속도의 균형" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A balance of quality and speed"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

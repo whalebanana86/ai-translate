@@ -18,9 +18,9 @@ public enum ModelDownloadError: Error, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .badStatus(let file, let status):
-            "모델 파일(\(file))을 받지 못했습니다 (HTTP \(status))."
+            String(localized: "모델 파일(\(file))을 받지 못했습니다 (HTTP \(status)).", bundle: .module)
         case .sizeMismatch(let file), .digestMismatch(let file):
-            "받은 모델 파일(\(file))이 공개된 파일과 다릅니다. 다시 받아 주세요."
+            String(localized: "받은 모델 파일(\(file))이 공개된 파일과 다릅니다. 다시 받아 주세요.", bundle: .module)
         }
     }
 }

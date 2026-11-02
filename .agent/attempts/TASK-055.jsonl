@@ -1,0 +1,2 @@
+{"ts": "2026-11-02T07:52:40Z", "started_epoch": 1793605957, "loop": 1, "attempt": 1, "result": "fail", "step": "lint", "exit_code": 1, "duration_s": 3, "signature": "f4556f9f548f55a2", "summary": "Packages/TranslateCore/Tests/TranslateCoreTests/EmojiFinderTests.swift:147:65: error: [ReplaceForEachWithForLoop] replace use of '.forEach { ... }' with for-in loop"}
+{"ts": "2026-11-02T07:53:12Z", "started_epoch": 1793605970, "loop": 1, "attempt": 2, "result": "pass", "duration_s": 22}
