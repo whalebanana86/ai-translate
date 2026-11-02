@@ -9,6 +9,16 @@ struct ClaudeCodeProviderTests {
 
     // MARK: - 인자
 
+    @Test func usesChosenModelWithLongerTimeoutForSlowerModels() {
+        let provider = ClaudeCodeProvider(executable: URL(fileURLWithPath: "/bin/echo"), model: "opus")
+
+        #expect(provider.arguments[(provider.arguments.firstIndex(of: "--model") ?? 0) + 1] == "opus")
+        #expect(ClaudeCodeProvider.models.map(\.id) == ["haiku", "sonnet", "opus", "fable"])
+        #expect(ClaudeCodeProvider.models.first?.id == ClaudeCodeProvider.defaultModel)
+        #expect(ClaudeCodeProvider.timeout(for: "haiku") == .seconds(60))
+        #expect(ClaudeCodeProvider.timeout(for: "fable") == .seconds(180))
+    }
+
     @Test func argumentsDisableToolsUserSettingsAndSessions() {
         let arguments = ClaudeCodeProvider(executable: URL(fileURLWithPath: "/bin/echo")).arguments
         func value(after flag: String) -> String? {
