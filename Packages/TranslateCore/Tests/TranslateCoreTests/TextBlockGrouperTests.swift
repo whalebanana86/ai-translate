@@ -175,6 +175,108 @@ struct TextBlockGrouperTests {
         #expect(blocks.map(\.text) == ["料金プランを選択してください月額\n年額でお得に"])
     }
 
+    // MARK: - 실제 웹페이지(유튜브 댓글, 한국어 화면, 배율 2)에서 나온 경우를 본뜬 데이터
+
+    @Test func keepsCommentBylineOutOfCommentBody() {
+        let blocks = TextBlockGrouper.group([
+            // 본문이 짧아 머리줄이 가장 넓은 줄: 예전에는 자동 줄바꿈으로 보고 공백으로 이었다
+            line("@GabrielsEpicLifeofGoals 6년 전(수정됨)", x: 34, y: 854, width: 432, height: 30),
+            line("Legend.", x: 34, y: 901, width: 104, height: 30),
+            // 여러 줄 본문
+            line("@ JetpackGamer456 6년 전(수정됨)", x: 34, y: 1313, width: 374, height: 30),
+            line("Ok let's be honest here", x: 34, y: 1360, width: 287, height: 30),
+            line("Rick rolling is the one meme that will never die", x: 34, y: 1401, width: 580, height: 34),
+        ])
+
+        #expect(
+            blocks.map(\.text) == [
+                "@GabrielsEpicLifeofGoals 6년 전(수정됨)", "Legend.", "@ JetpackGamer456 6년 전(수정됨)",
+                "Ok let's be honest here\nRick rolling is the one meme that will never die",
+            ])
+    }
+
+    @Test(arguments: [
+        "@candycake9531 6년 전", "@OjaswiThapa-v8f 13시간 전", "@user-kx9pq2 2일전", "@user 1개월 전(수정됨)",
+        "@user 2 days ago", "@user 1 year ago (edited)", "@ユーザー 3日前", "@ユーザー 6 年前（編集済み）", "@用户 5小时前",
+        "u/someone · 3 hours ago",
+    ])
+    func recognizesBylines(text: String) {
+        #expect(TextBlockGrouper.isByline(line(text, y: 0)))
+    }
+
+    @Test(arguments: [
+        "Rick rolling is the one meme that will never die", "답글 4개", "2026년 전시회 일정",
+        "I have been listening to this song every day since 2 years ago",
+    ])
+    func doesNotTakeOtherLinesForBylines(text: String) {
+        #expect(!TextBlockGrouper.isByline(line(text, y: 0)))
+    }
+
+    @Test func joinsWrappedBodyLineEndingWithRelativeTime() {
+        let blocks = TextBlockGrouper.group([
+            line("I have been listening to this song every day since 2 years ago", y: 0, width: 800),
+            line("and it never gets old.", y: 26, width: 270),
+        ])
+
+        #expect(
+            blocks.map(\.text) == [
+                "I have been listening to this song every day since 2 years ago and it never gets old."
+            ])
+    }
+
+    @Test func keepsLikeCountRowOutOfCommentBody() {
+        let blocks = TextBlockGrouper.group([
+            line("Ok let's be honest here", x: 34, y: 1360, width: 287, height: 30),
+            line("Rick rolling is the one meme that will never die", x: 34, y: 1401, width: 580, height: 34),
+            // 엄지 아이콘을 "C"로 읽었다. 같은 줄의 "답글"은 신뢰도가 낮아 잡음으로 버려진다
+            line("C 42만", x: 34, y: 1458, width: 101, height: 34),
+            line("답글", x: 236, y: 1461, width: 57, height: 27, confidence: 0.5),
+        ])
+
+        #expect(
+            blocks.map(\.text) == [
+                "Ok let's be honest here\nRick rolling is the one meme that will never die", "C 42만",
+            ])
+        #expect(blocks.map(\.isTranslatable) == [true, false])
+    }
+
+    @Test(arguments: ["C 42만", "§ 116", "2 7.2만 77", "6 29만", "42K"])
+    func doesNotTranslateRowsWithoutWords(text: String) {
+        #expect(TextBlockGrouper.group([line(text, y: 0)]).map(\.isTranslatable) == [false])
+    }
+
+    @Test(arguments: ["답글 4개", "OK", "月額", "Go"])
+    func translatesShortWords(text: String) {
+        #expect(TextBlockGrouper.group([line(text, y: 0)]).map(\.isTranslatable) == [true])
+    }
+
+    @Test func keepsReadMoreLinkOutOfCommentBody() {
+        let blocks = TextBlockGrouper.group([
+            line(
+                "WOW! I can't believe it! One billion views!! This is a very special moment for me. God bless you all, "
+                    + "and hope there's more billions of", x: 34, y: 979, width: 1622, height: 30),
+            line("views in the future!..", x: 30, y: 1019, width: 256, height: 30),
+            line("자세히 알아보기", x: 34, y: 1067, width: 179, height: 30),
+        ])
+
+        #expect(
+            blocks.map(\.text) == [
+                "WOW! I can't believe it! One billion views!! This is a very special moment for me. God bless you all, "
+                    + "and hope there's more billions of views in the future!..",
+                "자세히 알아보기",
+            ])
+    }
+
+    @Test(arguments: ["자세히 알아보기", "자세히알아보기", "더보기", "Read more", "Read more…", "Show less", "もっと見る", "展开"])
+    func recognizesExpandLinks(text: String) {
+        #expect(TextBlockGrouper.isExpandLink(line(text, y: 0)))
+    }
+
+    @Test(arguments: ["Read more about our pricing plans", "more", "자세히 알아보기 전에 확인하세요"])
+    func doesNotTakeSentencesForExpandLinks(text: String) {
+        #expect(!TextBlockGrouper.isExpandLink(line(text, y: 0)))
+    }
+
     @Test func blockBoundingBoxIsUnionOfLines() {
         let blocks = TextBlockGrouper.group([
             line("Start free and", x: 0, y: 0, width: 400), line("upgrade.", x: 10, y: 26, width: 200),

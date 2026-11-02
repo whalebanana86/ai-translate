@@ -62,4 +62,19 @@ struct TextRecognizerTests {
                 "Start free and upgrade when your team grows. Cancel anytime.", "언제든지 해지할 수 있습니다.",
             ])
     }
+
+    @Test func keepsCommentBylineOutOfShortCommentBody() async throws {
+        // 유튜브 댓글(배율 2): 머리줄 12px, 2px 아래 본문 14px. 본문이 머리줄보다 짧다
+        let image = try #require(
+            TextImage.render([
+                .init(text: "@MusicLover88 1년 전(수정됨)", x: 40, top: 40, size: 24),
+                .init(text: "Legend.", x: 40, top: 84),
+            ]))
+
+        let blocks = TextBlockGrouper.group(try await recognizer.recognize(image))
+
+        try #require(blocks.count == 2)
+        #expect(blocks[0].text.hasSuffix("1년 전(수정됨)"))
+        #expect(blocks[1].text == "Legend.")
+    }
 }

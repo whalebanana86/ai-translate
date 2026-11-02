@@ -71,9 +71,12 @@ struct LensGeometryTests {
     }
 
     @Test func matchesFontSizeToOriginalLineHeight() {
-        #expect(LensGeometry.fontSize(of: block(x: 0, lineHeight: 30), scale: 2) == CGFloat(13.5))
-        #expect(LensGeometry.fontSize(of: block(x: 0, lineHeight: 10), scale: 2) == CGFloat(11))
-        #expect(LensGeometry.fontSize(of: block(x: 0, lineHeight: 100), scale: 1) == CGFloat(24))
+        // 줄 높이 30px, 배율 2 → 15pt × 0.93
+        #expect(abs(LensGeometry.fontSize(of: block(x: 0, lineHeight: 30), scale: 2) - 13.95) < 0.001)
+        // 전체 화면 자막처럼 큰 글자도 원문 크기를 따른다 (예전 상한 24pt)
+        #expect(abs(LensGeometry.fontSize(of: block(x: 0, lineHeight: 60), scale: 2) - 27.9) < 0.001)
+        #expect(LensGeometry.fontSize(of: block(x: 0, lineHeight: 10), scale: 2) == CGFloat(9))
+        #expect(LensGeometry.fontSize(of: block(x: 0, lineHeight: 200), scale: 1) == CGFloat(72))
     }
 
     @Test func usesTallestLineForFontSize() {
@@ -86,7 +89,7 @@ struct LensGeometryTests {
         ]
         let block = TextBlock(lines: lines, text: "", boundingBox: CGRect(x: 0, y: 0, width: 324, height: 68))
 
-        #expect(LensGeometry.fontSize(of: block, scale: 2) == CGFloat(13.5))
+        #expect(abs(LensGeometry.fontSize(of: block, scale: 2) - 13.95) < 0.001)
     }
 
     @Test func putsToolbarAboveLensOrInsideWhenNoRoom() {
@@ -162,7 +165,7 @@ struct LensGeometryTests {
     }
 
     @Test func captionFontSizeFollowsRememberedLineHeight() {
-        #expect(LensGeometry.fontSize(lineHeight: 40, scale: 2) == 18)
+        #expect(abs(LensGeometry.fontSize(lineHeight: 40, scale: 2) - 18.6) < 0.001)
         #expect(LensGeometry.fontSize(lineHeight: 10, scale: 2) == LensGeometry.fontSizeRange.lowerBound)
     }
 

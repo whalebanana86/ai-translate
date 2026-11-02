@@ -5,6 +5,7 @@ import CoreGraphics
 /// - 전역 좌표: AppKit 기준. 주 화면 왼쪽 아래가 원점이고 y는 위로 증가한다 (`NSScreen.frame`, `NSEvent` 위치)
 /// - 디스플레이 로컬 좌표: 각 디스플레이 왼쪽 위가 원점이고 y는 아래로 증가하는 포인트 단위
 ///   (ScreenCaptureKit `SCStreamConfiguration.sourceRect`)
+/// - 창 목록 좌표: 주 화면 왼쪽 위가 원점이고 y는 아래로 증가하는 포인트 단위 (`CGWindowListCopyWindowInfo`의 창 영역)
 public enum ScreenGeometry {
     /// 실수로 클릭한 것과 구분하기 위한 최소 선택 크기(포인트)
     public static let minimumSelectionSide: CGFloat = 8
@@ -31,6 +32,11 @@ public enum ScreenGeometry {
         CGRect(
             x: globalRect.minX - screenFrame.minX, y: screenFrame.maxY - globalRect.maxY,
             width: globalRect.width, height: globalRect.height)
+    }
+
+    /// 전역 좌표의 점을 창 목록 좌표로 바꾼다. `mainScreenHeight`는 주 화면(메뉴 막대가 있는 화면) 높이
+    public static func windowListPoint(_ point: CGPoint, mainScreenHeight: CGFloat) -> CGPoint {
+        CGPoint(x: point.x, y: mainScreenHeight - point.y)
     }
 
     /// 포인트 영역의 픽셀 크기. 경계가 잘리지 않게 올림한다.

@@ -39,7 +39,10 @@ public struct ParagraphFrame: Equatable, Sendable {
 public enum LensGeometry {
     /// 번역 문단과 이웃 블록 사이 여백
     public static let spacing: CGFloat = 4
-    public static let fontSizeRange: ClosedRange<CGFloat> = 11...24
+    /// 번역 글자 크기 범위. 원문 크기를 따르되 너무 작거나 큰 글자만 막는다 (24pt 상한은 전체 화면 자막·큰 제목을 작게 만들었다)
+    public static let fontSizeRange: ClosedRange<CGFloat> = 9...72
+    /// 글자 크기 ÷ OCR 줄 상자 높이. 알고 있는 크기로 그린 영어·한국어·일본어 문장 105회 인식의 중간값 (TASK-040)
+    static let fontSizePerLineHeight: CGFloat = 0.93
     public static let minimumLensSize = CGSize(width: 160, height: 80)
     /// 렌즈가 좁아도 도구 막대 버튼이 다 보이는 너비
     public static let minimumToolbarWidth: CGFloat = 340
@@ -105,7 +108,7 @@ public enum LensGeometry {
         block.boundingBox.minY <= edgeMargin || block.boundingBox.maxY >= imageHeight - edgeMargin
     }
 
-    /// 원래 글자 크기에 맞춘 번역 글자 크기. OCR 줄 높이는 글자 크기와 비슷하다.
+    /// 원래 글자 크기에 맞춘 번역 글자 크기. OCR 줄 높이는 글자 크기와 비슷하다(`fontSizePerLineHeight`).
     /// 아래로 내려가는 글자(g, y 등)가 없는 줄은 낮게 잡히므로 문단에서 가장 높은 줄을 기준으로 한다.
     public static func fontSize(of block: TextBlock, scale: CGFloat) -> CGFloat {
         fontSize(lineHeight: block.lines.map(\.boundingBox.height).max() ?? 0, scale: scale)
@@ -113,7 +116,7 @@ public enum LensGeometry {
 
     /// 줄 높이(이미지 픽셀)에 맞춘 번역 글자 크기. 자막은 기억한 줄 높이(`CaptionAnchor.lineHeight`)로 정해 크기가 흔들리지 않게 한다
     public static func fontSize(lineHeight: CGFloat, scale: CGFloat) -> CGFloat {
-        min(max(lineHeight / scale * 0.9, fontSizeRange.lowerBound), fontSizeRange.upperBound)
+        min(max(lineHeight / scale * fontSizePerLineHeight, fontSizeRange.lowerBound), fontSizeRange.upperBound)
     }
 
     /// 도구 막대 위치. 렌즈 바로 위에 두고, 화면 위쪽에 공간이 없으면 렌즈 안 위쪽에 둔다.
