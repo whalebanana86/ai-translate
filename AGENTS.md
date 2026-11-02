@@ -180,6 +180,10 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
   - 인증서가 없으면 `run-app.sh`는 임시 서명으로 실행하고 경고한다. 권한이 풀리면
     `tccutil reset ScreenCapture com.example.AITranslate` 후 다시 허용한다
   - 팀 ID가 생기면 `project.yml`에 넣고 팀 서명으로 바꾼다
+  - 이 맥용 릴리즈(`scripts/install-release.sh`, TASK-049): Release 빌드(이 맥 아키텍처만, 약 4분)를 같은 개발 인증서로 서명해
+    `/Applications/AITranslate.app`에 설치한다. 서명 요구사항이 개발 빌드와 같아 화면 기록 권한·설정·받은 모델을 함께 쓴다.
+    번들 ID가 같아 개발 빌드와 함께 띄우지 않는다(스크립트가 실행 중인 앱을 종료). 외부 배포용이 아니다(Developer ID·공증 없음).
+    버전은 `project.yml`의 `MARKETING_VERSION`이고 릴리즈마다 `v<버전>` 태그를 붙인다
 
 ### 디렉터리 구조
 
@@ -203,6 +207,7 @@ xcodegen generate                                  # AITranslate.xcodeproj 생�
 open AITranslate.xcodeproj                         # Xcode에서 열기
 ./scripts/setup-dev-signing.sh                     # 개발 서명 인증서 만들기 (한 번, 이미 있으면 건너뜀)
 ./scripts/run-app.sh                               # 빌드 → 개발 인증서로 서명 → 앱 실행 (실행 중이면 재시작)
+./scripts/install-release.sh                       # 이 맥용 릴리즈: Release 빌드 → 개발 인증서로 서명 → /Applications에 설치·실행
 swift test --package-path Packages/TranslateCore   # 로직 테스트만 빠르게
 AITRANSLATE_LIVE_TESTS=1 swift test --package-path Packages/TranslateCore --filter LiveTests   # 실제 엔진 호출 (수동)
 swift format format -i -r --configuration .swift-format App Packages/TranslateCore/Sources Packages/TranslateCore/Tests
