@@ -13,6 +13,13 @@ struct TranslationPayloadTests {
         let data = try TranslationPayload.encode(TranslationRequest(target: "Korean", segments: ["a/b"]))
         let json = try #require(String(data: data, encoding: .utf8))
         #expect(json == #"{"segments":["a/b"],"target":"Korean"}"#)
+
+        let styled = try TranslationPayload.encode(
+            TranslationRequest(target: "Korean", segments: ["a"], style: "Use the formal polite style."))
+        #expect(
+            String(decoding: styled, as: UTF8.self)
+                == #"{"segments":["a"],"style":"Use the formal polite style.","target":"Korean"}"#)
+        #expect(TranslationPrompt.system.contains(#"If the JSON has a "style""#))
     }
 
     @Test func encodedRequestRoundTrips() throws {

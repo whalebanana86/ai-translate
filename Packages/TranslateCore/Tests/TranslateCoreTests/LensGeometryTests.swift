@@ -28,7 +28,7 @@ struct LensGeometryTests {
             frames == [
                 ParagraphFrame(
                     origin: CGPoint(x: 100, y: 50), width: 200, maxHeight: 300 - 50,
-                    sourceSize: CGSize(width: 200, height: 32))
+                    sourceSize: CGSize(width: 200, height: 32), sourceLineCount: 2)
             ])
     }
 
@@ -147,6 +147,7 @@ struct LensGeometryTests {
         #expect(frame.width == 588)
         #expect(frame.maxHeight == 166)
         #expect(frame.sourceRect == CGRect(x: 200, y: 150, width: 200, height: 20))
+        #expect(frame.sourceLineCount == 1)
     }
 
     @Test func captionTranslationGrowsUpToBlockAbove() {
@@ -162,6 +163,64 @@ struct LensGeometryTests {
         #expect(frames[0].sourceRect.origin == frames[0].origin)
         #expect(frames[1].origin.y == 64)
         #expect(frames[1].maxHeight == 106)
+    }
+
+    /// 단어 너비로 줄바꿈한 높이 (단어 사이 8, 줄 높이 30). 들어가지 않는 단어는 다음 줄로 넘긴다
+    private func wrappedHeight(_ words: [CGFloat]) -> (CGFloat) -> CGFloat {
+        { width in
+            var lines = 1
+            var current: CGFloat = 0
+            for word in words {
+                if current == 0 || current + 8 + word <= width {
+                    current = current == 0 ? word : current + 8 + word
+                } else {
+                    lines += 1
+                    current = word
+                }
+            }
+            return CGFloat(lines) * 30
+        }
+    }
+
+    @Test func splitsTwoLineCaptionTranslationIntoTwoEvenLines() {
+        // 스크린샷: 원문 두 줄(가장 긴 줄 500), 번역은 한 줄이면 1140이라 원문 너비로는 세 줄
+        let height = wrappedHeight([200, 180, 150, 150, 220, 200])
+
+        let width = LensGeometry.balancedWidth(
+            lines: 2, sourceWidth: 500, maxWidth: 1900, lineHeight: 30, height: height)
+
+        // 두 줄로 들어가는 가장 좁은 너비: 546 | 586
+        #expect(height(width) == 60)
+        #expect(width >= 586 && width < 587)
+    }
+
+    @Test func keepsCaptionTranslationWithinSourceWidthWhenItFits() {
+        // 원문 너비 640에서 두 줄이면 원문과 같은 폭으로
+        let twoLines = LensGeometry.balancedWidth(
+            lines: 2, sourceWidth: 640, maxWidth: 1900, lineHeight: 30,
+            height: wrappedHeight([200, 180, 150, 150, 220, 200]))
+        // 짧은 번역은 나누지 않는다
+        let short = LensGeometry.balancedWidth(
+            lines: 2, sourceWidth: 640, maxWidth: 1900, lineHeight: 30, height: wrappedHeight([100, 100]))
+
+        #expect(twoLines == 640)
+        #expect(short == 640)
+        #expect(wrappedHeight([100, 100])(short) == 30)
+    }
+
+    @Test func keepsOneLineCaptionTranslationOnOneLineAndEvensOutLongOnes() {
+        let fits = wrappedHeight([100, 100])
+        let long = wrappedHeight(Array(repeating: 100, count: 10))
+
+        let oneLine = LensGeometry.balancedWidth(
+            lines: 1, sourceWidth: 150, maxWidth: 1000, lineHeight: 30, height: fits)
+        // 최대 너비 800에서도 두 줄: 다섯 단어씩(532)
+        let evened = LensGeometry.balancedWidth(lines: 1, sourceWidth: 300, maxWidth: 800, lineHeight: 30, height: long)
+
+        #expect(fits(oneLine) == 30)
+        #expect(oneLine >= 208 && oneLine < 209)
+        #expect(long(evened) == 60)
+        #expect(evened >= 532 && evened < 533)
     }
 
     @Test func captionFontSizeFollowsRememberedLineHeight() {

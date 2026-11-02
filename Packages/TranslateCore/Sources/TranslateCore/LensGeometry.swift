@@ -13,10 +13,12 @@ public struct ParagraphFrame: Equatable, Sendable {
     public var sourceOrigin: CGPoint
     /// 영상 자막처럼 가운데 정렬된 문단. 번역을 자리(`origin`·`width`·`maxHeight`)의 가운데·아래 끝에 맞춰 그린다
     public var isCentered: Bool
+    /// 원문 문단 줄 수. 자막 번역을 원문처럼 이 줄 수로 나눈다(`LensGeometry.balancedWidth`)
+    public var sourceLineCount: Int
 
     public init(
         origin: CGPoint, width: CGFloat, maxHeight: CGFloat, sourceSize: CGSize, sourceOrigin: CGPoint? = nil,
-        isCentered: Bool = false
+        isCentered: Bool = false, sourceLineCount: Int = 1
     ) {
         self.origin = origin
         self.width = width
@@ -24,6 +26,7 @@ public struct ParagraphFrame: Equatable, Sendable {
         self.sourceSize = sourceSize
         self.sourceOrigin = sourceOrigin ?? origin
         self.isCentered = isCentered
+        self.sourceLineCount = sourceLineCount
     }
 
     /// 가려야 하는 원문 문단 영역
@@ -64,7 +67,8 @@ public enum LensGeometry {
         return zip(blocks, boxes).enumerated().map { index, item in
             let (block, box) = item
             if captions.indices.contains(index), let anchor = captions[index] {
-                return captionFrame(of: box, at: anchor, scale: scale, among: boxes, lensSize: lensSize)
+                return captionFrame(
+                    of: box, lines: block.lines.count, at: anchor, scale: scale, among: boxes, lensSize: lensSize)
             }
             let rightNeighbor = boxes.filter { other in
                 other.minX >= box.maxX && other.minY < box.maxY && other.maxY > box.minY
@@ -78,12 +82,13 @@ public enum LensGeometry {
             .map(\.minY).min()
             let bottom = min(below.map { $0 - spacing } ?? lensSize.height, lensSize.height)
             return ParagraphFrame(
-                origin: box.origin, width: width, maxHeight: max(box.height, bottom - box.minY), sourceSize: box.size)
+                origin: box.origin, width: width, maxHeight: max(box.height, bottom - box.minY), sourceSize: box.size,
+                sourceLineCount: block.lines.count)
         }
     }
 
     private static func captionFrame(
-        of box: CGRect, at anchor: CaptionAnchor, scale: CGFloat, among boxes: [CGRect], lensSize: CGSize
+        of box: CGRect, lines: Int, at anchor: CaptionAnchor, scale: CGFloat, among boxes: [CGRect], lensSize: CGSize
     ) -> ParagraphFrame {
         let centerX = anchor.centerX / scale
         let bottom = anchor.bottom / scale
@@ -97,7 +102,31 @@ public enum LensGeometry {
         let maxHeight = max(box.height, bottom - top)
         return ParagraphFrame(
             origin: CGPoint(x: left, y: bottom - maxHeight), width: halfWidth * 2, maxHeight: maxHeight,
-            sourceSize: box.size, sourceOrigin: box.origin, isCentered: true)
+            sourceSize: box.size, sourceOrigin: box.origin, isCentered: true, sourceLineCount: lines)
+    }
+
+    /// 자막 번역을 원문처럼 `lines`줄로 고르게 나누는 너비. 자막 자리는 렌즈 너비만큼 넓어 두 줄 자막의 번역이 한 줄로 펴졌다(TASK-046).
+    /// - 원문 너비(`sourceWidth`) 안에 원문 줄 수로 들어가면 원문 너비 (짧은 번역은 나누지 않는다)
+    /// - 아니면 원문 줄 수로 들어가는 가장 좁은 너비라 줄 길이가 고르다. 최대 너비에서도 줄이 더 필요하면 그 줄 수로
+    /// - `height(w)`: 너비 w로 줄바꿈했을 때 글 높이, `lineHeight`: 한 줄 높이
+    public static func balancedWidth(
+        lines: Int, sourceWidth: CGFloat, maxWidth: CGFloat, lineHeight: CGFloat, height: (CGFloat) -> CGFloat
+    ) -> CGFloat {
+        guard lineHeight > 0 else { return maxWidth }
+        // 높이는 줄 높이의 배수이므로 반 줄 여유를 두고 비교한다
+        let allowed = max(height(maxWidth), CGFloat(lines) * lineHeight) + lineHeight / 2
+        var low = min(sourceWidth, maxWidth)
+        guard height(low) > allowed else { return low }
+        var high = maxWidth
+        while high - low > 1 {
+            let middle = (low + high) / 2
+            if height(middle) <= allowed {
+                high = middle
+            } else {
+                low = middle
+            }
+        }
+        return high
     }
 
     /// 캡처 위·아래 끝에서 이만큼(픽셀) 안에 닿은 문단은 잘린 것으로 본다

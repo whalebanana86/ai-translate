@@ -14,7 +14,7 @@ final class LensModel {
         /// 원문의 바탕색·글자색. 번역을 이 색으로 그린다
         var colors: BlockColors
 
-        /// 원문 자리에 그릴 번역. 번역 전이거나 번역할 필요가 없는 문단은 그리지 않아 원문이 그대로 보인다
+        /// 원문 자리에 그릴 번역. 번역 전 문단은 가림 상자만, 번역할 필요가 없는 문단은 아무것도 그리지 않는다(원문이 보인다)
         var translation: String? {
             if case .translated(let text) = content { text } else { nil }
         }
@@ -106,6 +106,8 @@ struct LensBodyView: View {
     static let minimumTextScale = 0.6
     /// OCR 영역보다 이만큼 넓게 가려 글자 가장자리(아래로 내려가는 글자 등)도 보이지 않게 한다
     static let backingInset: CGFloat = 3
+    /// 번역을 기다리며 가린 원문 줄 막대의 진하기 (글자색 대비)
+    static let lineBarOpacity = 0.18
 
     let model: LensModel
 
@@ -113,11 +115,12 @@ struct LensBodyView: View {
         ZStack(alignment: .topLeading) {
             Color.clear
             if !model.isOutdated {
-                let shown = model.paragraphs.filter { $0.translation != nil }
+                let canTranslate = if case .failed = model.status { false } else { true }
+                let covered = model.paragraphs.filter { $0.content.hidesOriginal(canTranslate: canTranslate) }
                 LensParagraphLayout(coverInset: Self.backingInset) {
                     // 가림 상자를 먼저(아래), 번역 글을 나중에(위) 그린다
-                    ForEach(shown, content: cover)
-                    ForEach(shown, content: translation)
+                    ForEach(covered, content: cover)
+                    ForEach(covered.filter { $0.translation != nil }, content: translation)
                 }
                 placeholder
             }
@@ -130,12 +133,39 @@ struct LensBodyView: View {
     }
 
     /// 원문 문단과 번역 글을 모두 덮는 원문 바탕색 상자. 번역이 원문보다 짧아도, 자막 번역을 기억한 자리에 그려도 원문 글자가
-    /// 보이지 않는다 (자리는 `LensParagraphLayout`이 정한다)
+    /// 보이지 않는다 (자리는 `LensParagraphLayout`이 정한다). 번역을 기다리는 문단은 줄 막대를 그려 번역 중임을 보인다
     private func cover(_ paragraph: LensModel.Paragraph) -> some View {
         Rectangle()
             .fill(Color(paragraph.colors.background))
+            .overlay {
+                if paragraph.translation == nil {
+                    lineBars(paragraph)
+                }
+            }
             .layoutValue(key: ParagraphFrameKey.self, value: paragraph.frame)
             .layoutValue(key: ParagraphPartKey.self, value: .cover(paragraph.id))
+    }
+
+    /// 가린 원문 줄마다 흐린 막대. 여러 줄이면 마지막 줄을 짧게 그려 글처럼 보이게 한다
+    private func lineBars(_ paragraph: LensModel.Paragraph) -> some View {
+        let lines = max(paragraph.frame.sourceLineCount, 1)
+        return GeometryReader { proxy in
+            let rowHeight = proxy.size.height / CGFloat(lines)
+            VStack(spacing: 0) {
+                ForEach(0..<lines, id: \.self) { index in
+                    Capsule()
+                        .fill(Color(paragraph.colors.text).opacity(Self.lineBarOpacity))
+                        .frame(
+                            width: proxy.size.width * (lines > 1 && index == lines - 1 ? 0.6 : 1),
+                            height: rowHeight * 0.45
+                        )
+                        .frame(
+                            maxWidth: .infinity, maxHeight: .infinity,
+                            alignment: paragraph.frame.isCentered ? .center : .leading)
+                }
+            }
+        }
+        .padding(Self.backingInset)
     }
 
     private func translation(_ paragraph: LensModel.Paragraph) -> some View {
@@ -147,6 +177,9 @@ struct LensBodyView: View {
             .minimumScaleFactor(Self.minimumTextScale)
             .layoutValue(key: ParagraphFrameKey.self, value: paragraph.frame)
             .layoutValue(key: ParagraphPartKey.self, value: .text(paragraph.id))
+            .layoutValue(
+                key: TextLineCountKey.self,
+                value: (paragraph.translation ?? "").split(separator: "\n", omittingEmptySubsequences: false).count)
     }
 
     @ViewBuilder private var placeholder: some View {
@@ -202,8 +235,13 @@ private struct ParagraphPartKey: LayoutValueKey {
     static let defaultValue = ParagraphPart.text(-1)
 }
 
+/// 번역 글의 강제 줄 수. 자막 번역의 한 줄 높이를 잴 때 쓴다
+private struct TextLineCountKey: LayoutValueKey {
+    static let defaultValue = 1
+}
+
 /// 문단을 원문 위치에 두고, 쓸 수 있는 자리(너비·최대 높이) 안에서 글을 배치한다. 다른 문단을 밀지 않는다.
-/// 보통 문단은 왼쪽 위, 자막은 가운데·아래 끝에 맞춘다. 가림 상자는 원문 문단과 놓인 번역 글을 모두 덮는다.
+/// 보통 문단은 왼쪽 위, 자막은 가운데·아래 끝에 맞추고 원문 줄 수만큼 고르게 나눈다. 가림 상자는 원문 문단과 놓인 번역 글을 모두 덮는다.
 struct LensParagraphLayout: Layout {
     /// 가림 상자를 원문·번역 영역보다 넓히는 여백
     var coverInset: CGFloat
@@ -217,7 +255,7 @@ struct LensParagraphLayout: Layout {
         for subview in subviews {
             guard case .text(let id) = subview[ParagraphPartKey.self] else { continue }
             let frame = subview[ParagraphFrameKey.self]
-            let proposal = ProposedViewSize(width: frame.width, height: frame.maxHeight)
+            let proposal = ProposedViewSize(width: textWidth(of: subview, in: frame), height: frame.maxHeight)
             let size = subview.sizeThatFits(proposal)
             // 자막: 자리의 가운데·아래 끝. 보통 문단: 왼쪽 위
             let origin =
@@ -239,6 +277,19 @@ struct LensParagraphLayout: Layout {
             subview.place(
                 at: CGPoint(x: bounds.minX + covered.minX, y: bounds.minY + covered.minY), anchor: .topLeading,
                 proposal: ProposedViewSize(covered.size))
+        }
+    }
+
+    /// 번역 글이 줄바꿈되는 너비. 자막은 원문 줄 수만큼 고르게 나누는 너비(`LensGeometry.balancedWidth`), 보통 문단은 자리 너비.
+    /// 높이를 잴 때는 세로를 제한하지 않는다 (제한하면 글자를 줄여 맞춰 줄 수를 셀 수 없다)
+    private func textWidth(of subview: LayoutSubview, in frame: ParagraphFrame) -> CGFloat {
+        guard frame.isCentered else { return frame.width }
+        let lineHeight = subview.sizeThatFits(.unspecified).height / CGFloat(max(subview[TextLineCountKey.self], 1))
+        return LensGeometry.balancedWidth(
+            lines: frame.sourceLineCount, sourceWidth: frame.sourceSize.width, maxWidth: frame.width,
+            lineHeight: lineHeight
+        ) { width in
+            subview.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
         }
     }
 }

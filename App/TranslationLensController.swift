@@ -527,6 +527,8 @@ final class LensSession {
     private func translateIfNeeded() {
         guard translateTask == nil, !model.isPaused, let translator else { return }
         let language = model.language
+        // 영상(계속 바뀌는 화면)의 자막만 문체를 맞춘다 (사용자 선택, TASK-048)
+        let style = tracker.isKeepingUp ? language.subtitleStyle : nil
         let height = imageHeight
         let missing = TranslationScheduling.prioritized(memory.missing(in: blocks, for: language)) {
             LensGeometry.isCutOff($0, imageHeight: height)
@@ -560,7 +562,7 @@ final class LensSession {
         }
         translateTask = Task { [weak self] in
             do {
-                let translated = try await translator.translate(batch, to: language) { block, partial in
+                let translated = try await translator.translate(batch, to: language, style: style) { block, partial in
                     Task { @MainActor in showPartial(block.text, partial) }
                 }
                 let engine = String(describing: type(of: translator.provider))
