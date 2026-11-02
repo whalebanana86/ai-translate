@@ -164,6 +164,10 @@ final class LensSession {
     private var captionDetector = CaptionDetector()
     /// `blocks`와 같은 순서. 가운데 정렬 자막이면 번역을 그릴 자리
     private var captions: [CaptionAnchor?] = []
+    /// 같은 크기의 원문은 같은 크기로 번역을 그린다 (전에 쓴 크기를 기억한다)
+    private var fontSizer = FontSizer()
+    /// `blocks`와 같은 순서의 번역 글자 크기
+    private var fontSizes: [CGFloat] = []
     /// 중간 글로 화면을 다시 그리는 최소 간격 (생성은 초당 약 100토큰)
     private static let partialRefreshInterval: Duration = .milliseconds(50)
     /// 이동·크기 조절 중이면 시작 시점의 마우스 위치와 렌즈 영역
@@ -174,8 +178,10 @@ final class LensSession {
     private var appSwitchObserver: (any NSObjectProtocol)?
     /// 렌즈 아래가 다른 내용으로 바뀌었을 수 있는 마지막 사용자 동작(스크롤·클릭·앱 전환)
     private var lastUserAction: ContinuousClock.Instant?
-    /// 렌즈 위에서 마지막으로 스크롤한 때
+    /// 렌즈 아래 내용을 움직이는 스크롤을 마지막으로 한 때
     private var lastScroll: ContinuousClock.Instant?
+    /// 지금 스크롤 묶음(0.5초 안에 이어지는 스크롤)이 렌즈 아래 창에서 일어났는지. 창 목록은 묶음의 첫 이벤트에서만 본다
+    private var scrollBurst: (inLensWindow: Bool, last: ContinuousClock.Instant)?
     /// 마지막 캡처에서 화면이 바뀌는 중이었는지. 그동안은 자주 찍어 멈춤을 빨리 확인한다 (`CaptureSchedule`)
     private var isScreenChanging = false
     /// 화면이 바뀌기 시작한 때(렌즈 생성·스크롤·큰 변화). 번역이 다 보일 때까지의 체감 시간을 잰다
@@ -347,6 +353,13 @@ final class LensSession {
                 captionDetector.reset()
                 captions = []
             }
+            // 자막은 기억한 줄 높이, 그 밖에는 문단 줄 높이의 중간값으로 정하고, 비슷한 높이는 한 크기로 묶는다
+            fontSizes = fontSizer.fontSizes(
+                for: recognized.indices.map { index in
+                    captions.indices.contains(index)
+                        ? captions[index]?.lineHeight ?? FontSizer.lineHeight(of: recognized[index])
+                        : FontSizer.lineHeight(of: recognized[index])
+                }, scale: selection.scale)
             if model.isWatchingVideo != tracker.isKeepingUp {
                 model.isWatchingVideo = tracker.isKeepingUp
             }
@@ -384,12 +397,47 @@ final class LensSession {
         }
     }
 
+    /// 렌즈 아래 내용을 움직이는 스크롤이면 지난 번역을 바로 숨긴다. 포인터가 렌즈 안이거나, 렌즈 밖이라도 렌즈 아래와 같은 창이면
+    /// 그 창의 내용이 움직인다 (렌즈 안만 보면 렌즈가 페이지 일부만 덮을 때 번역이 움직이는 내용 위에 남았다, TASK-041)
     private func didScroll() {
-        guard bodyPanel.isOnActiveSpace, frame.contains(NSEvent.mouseLocation) else { return }
+        guard bodyPanel.isOnActiveSpace else { return }
+        let mouse = NSEvent.mouseLocation
+        let now = ContinuousClock.now
+        let inLensWindow =
+            if let scrollBurst, now - scrollBurst.last < Self.scrollQuietPeriod {
+                scrollBurst.inLensWindow
+            } else {
+                isInLensWindow(mouse)
+            }
+        scrollBurst = (inLensWindow, now)
+        guard inLensWindow || frame.contains(mouse) else { return }
         markChange()
         lastScroll = .now
         lastUserAction = .now
         model.isOutdated = true
+    }
+
+    /// 점(전역 좌표)이 렌즈 가운데 아래에 있는 창과 같은 창 위에 있는지. 이 앱 창과 메뉴 막대·독 같은 시스템 층은 뺀다
+    private func isInLensWindow(_ point: CGPoint) -> Bool {
+        guard
+            let mainHeight = NSScreen.screens.first?.frame.height,
+            let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]]
+        else { return false }
+        let ownProcessID = ProcessInfo.processInfo.processIdentifier
+        let windows = list.compactMap { info -> WindowInfo? in
+            guard (info[kCGWindowLayer as String] as? Int) == 0,
+                (info[kCGWindowOwnerPID as String] as? pid_t) != ownProcessID,
+                let number = info[kCGWindowNumber as String] as? Int,
+                let boundsInfo = info[kCGWindowBounds as String] as? NSDictionary,
+                let bounds = CGRect(dictionaryRepresentation: boundsInfo)
+            else { return nil }
+            return WindowInfo(number: number, bounds: bounds)
+        }
+        let lensCenter = CGPoint(x: frame.midX, y: frame.midY)
+        return WindowStack.sameWindow(
+            ScreenGeometry.windowListPoint(lensCenter, mainScreenHeight: mainHeight),
+            ScreenGeometry.windowListPoint(point, mainScreenHeight: mainHeight), in: windows)
     }
 
     private func didAct() {
@@ -619,12 +667,10 @@ final class LensSession {
             if case .pending = content, let partial = partials[block.text], !partial.isEmpty {
                 content = .translated(partial)
             }
-            // 자막은 기억한 줄 높이로 글자 크기를 정한다 (인식마다 줄 높이가 달라 글자 크기가 흔들렸다)
-            let caption = captions.indices.contains(index) ? captions[index] : nil
             return LensModel.Paragraph(
                 id: index, content: content, frame: paragraphFrame,
-                fontSize: caption.map { LensGeometry.fontSize(lineHeight: $0.lineHeight, scale: scale) }
-                    ?? LensGeometry.fontSize(of: block, scale: scale),
+                fontSize: fontSizes.indices.contains(index)
+                    ? fontSizes[index] : LensGeometry.fontSize(of: block, scale: scale),
                 colors: colors.indices.contains(index) ? colors[index] : .plain)
         }
     }
