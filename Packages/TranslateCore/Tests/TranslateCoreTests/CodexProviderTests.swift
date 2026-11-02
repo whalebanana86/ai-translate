@@ -28,6 +28,40 @@ struct CodexProviderTests {
             """, name: "codex")
     }
 
+    @Test func passesModelOnlyWhenChosen() {
+        let paths = (
+            URL(fileURLWithPath: "/tmp/work"), URL(fileURLWithPath: "/tmp/io/schema.json"),
+            URL(fileURLWithPath: "/tmp/io/output.json")
+        )
+        let standard = CodexProvider(executable: URL(fileURLWithPath: "/bin/echo"))
+            .arguments(workingDirectory: paths.0, schema: paths.1, output: paths.2)
+        let chosen = CodexProvider(executable: URL(fileURLWithPath: "/bin/echo"), model: "gpt-6-luna")
+            .arguments(workingDirectory: paths.0, schema: paths.1, output: paths.2)
+
+        #expect(!standard.contains("--model"))
+        #expect(chosen[(chosen.firstIndex(of: "--model") ?? 0) + 1] == "gpt-6-luna")
+        // 표준 입력을 뜻하는 "-"는 맨 끝
+        #expect(chosen.last == "-")
+    }
+
+    @Test func listsVisibleCodexModelsInPriorityOrder() {
+        let cache = Data(
+            #"""
+            {"fetched_at": "2026-11-02T07:38:12Z", "models": [
+              {"slug": "gpt-6-luna", "display_name": "GPT-6-Luna", "description": "Fast", "visibility": "list", "priority": 5},
+              {"slug": "gpt-reserve", "display_name": "GPT-Reserve", "visibility": "hide", "priority": 4},
+              {"slug": "gpt-6.1-sol", "display_name": "GPT-6.1-Sol", "description": "Workhorse", "visibility": "list", "priority": 1, "extra": [1, 2]}
+            ]}
+            """#.utf8)
+
+        let models = CodexModelCatalog.models(fromCache: cache)
+
+        #expect(models.map(\.id) == ["gpt-6.1-sol", "gpt-6-luna"])
+        #expect(models.first?.displayName == "GPT-6.1-Sol")
+        #expect(CodexModelCatalog.models(fromCache: Data("not json".utf8)).isEmpty)
+        #expect(CodexModelCatalog.load(from: URL(fileURLWithPath: "/nonexistent/models_cache.json")).isEmpty)
+    }
+
     @Test func argumentsUseReadOnlySandboxAndNoUserConfig() {
         let provider = CodexProvider(executable: URL(fileURLWithPath: "/bin/echo"))
         let arguments = provider.arguments(

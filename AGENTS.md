@@ -165,6 +165,11 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
   엔진별 번역 엔진을 만들어 기억), 화면 `App/SettingsView.swift`, 창 `App/SettingsWindowController.swift`(메뉴 "설정…" ⌘,)
   - 엔진을 아직 고르지 않았으면(처음 실행) 같은 화면을 시작 안내로 띄우고, ⌘⇧1도 렌즈 대신 안내를 띄운다
   - 엔진을 바꾸면 열린 렌즈가 진행 중 요청을 취소하고 기억한 번역을 비워 새 엔진으로 다시 번역한다
+  - CLI 엔진 모델 고르기(TASK-053, 설정 카드 안, UserDefaults `ClaudeModel`·`CodexModel`): Claude는 Claude Code 별칭
+    (`ClaudeCodeProvider.models`: haiku 기본·sonnet·opus·fable, Claude Code가 그때의 최신 모델로 바꿈), Codex는 Codex가 받아 두는
+    `~/.codex/models_cache.json`의 보이는 모델(`CodexModelCatalog`, 계정·버전마다 달라 고정하지 않음) + 기본값(모델을 넘기지 않음).
+    Codex는 고른 모델이 있을 때만 `--model`. Claude는 Haiku가 아니면 시간 제한 180초(측정 안 함, Haiku 60초보다 느림).
+    고른 엔진의 모델을 바꾸면 엔진을 바꿀 때처럼 렌즈가 다시 번역한다. 번역 기억은 엔진·모델별 파일(기본 모델은 예전 `<엔진>.json`)
   - 묶음은 `TranslationScheduling.batch`: 엔진의 `preferredBatchSize`(로컬 1: 번역되는 대로 보임), 새 화면이면
     `firstBatchSize`(Claude 3: 위쪽 문단 먼저, Codex는 요청 고정 비용이 커서 나누지 않음), 그 밖에는 남은 문단을 한 번에
   - 렌즈 위·아래 끝에 걸친(잘린) 문단은 스크롤마다 글이 바뀌므로 맨 뒤에 번역한다(`LensGeometry.isCutOff`)
@@ -294,8 +299,9 @@ swift format format -i -r --configuration .swift-format App Packages/TranslateCo
 - 캡처 이미지, 인식한 텍스트, 번역 결과를 로그나 크래시 리포트에 남기지 않는다.
 - 캡처 이미지는 파일로 저장하지 않는다 (메모리에서 쓰고 버린다). 번역 엔진에는 인식한 글만 보낸다. 번역 글 안에 그릴 이모지
   그림(캡처에서 오린 조각)도 렌즈 메모리에만 둔다
-- 번역 기억(`TranslateCore/TranslationMemoryStore.swift`): 같은 글을 다시 번역하지 않도록 원문·번역을 엔진별로
-  `~/Library/Application Support/AITranslate/TranslationMemory/<엔진>.json`에 저장한다(파일 권한 0600, 엔진별 최근 500개).
+- 번역 기억(`TranslateCore/TranslationMemoryStore.swift`): 같은 글을 다시 번역하지 않도록 원문·번역을 엔진·모델별로
+  `~/Library/Application Support/AITranslate/TranslationMemory/<엔진>.json`(기본 모델)·`<엔진>-<모델>.json`에 저장한다
+  (파일 권한 0600, 파일마다 최근 500개).
   렌즈를 만들 때 불러오고 닫을 때·엔진을 바꿀 때·앱을 끌 때 저장한다. 설정의 "번역 기억 지우기"로 파일과 열린 렌즈의 기억을 지운다
 - 번역 기록 패널의 기록은 메모리에만 두고 렌즈를 닫으면 사라진다 (파일로 저장하지 않는다)
 - 외부 엔진으로 처음 번역하기 전에 선택 영역의 내용이 어디로 전송되는지 알린다. 구현: `App/DataTransmissionNotice.swift`

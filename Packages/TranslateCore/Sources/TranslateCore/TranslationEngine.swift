@@ -17,7 +17,7 @@ public enum TranslationEngine: String, CaseIterable, Codable, Identifiable, Send
     public var summary: String {
         switch self {
         case .claudeCode:
-            "이 Mac에 설치된 Claude Code(haiku)로 번역합니다. 품질이 가장 좋고 한 번에 3~6초 걸립니다. "
+            "이 Mac에 설치된 Claude Code로 번역합니다. 기본 모델(Haiku)은 한 번에 3~6초 걸립니다. "
                 + "Claude 요금제 사용량이 쓰입니다."
         case .codex:
             "이 Mac에 설치된 Codex CLI로 번역합니다. 한 번에 7~9초 걸리고 ChatGPT 요금제 사용량이 쓰입니다."

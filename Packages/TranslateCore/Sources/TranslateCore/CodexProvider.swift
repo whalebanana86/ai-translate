@@ -9,22 +9,25 @@ public struct CodexProvider: TranslationProvider {
     public static let defaultTimeout: Duration = .seconds(90)
 
     public var executable: URL
+    /// nil이면 Codex 기본 모델 (사용자 설정을 읽지 않으므로 Codex에 들어 있는 기본값)
+    public var model: String?
     public var timeout: Duration
 
-    public init(executable: URL, timeout: Duration = defaultTimeout) {
+    public init(executable: URL, model: String? = nil, timeout: Duration = defaultTimeout) {
         self.executable = executable
+        self.model = model
         self.timeout = timeout
     }
 
     /// CLI를 찾아 엔진을 만든다. 찾지 못하면 `TranslationEngineError.executableNotFound`.
-    public static func locate(configuredPath: String? = nil, timeout: Duration = defaultTimeout) async throws
-        -> CodexProvider
+    public static func locate(configuredPath: String? = nil, model: String? = nil, timeout: Duration = defaultTimeout)
+        async throws -> CodexProvider
     {
         guard
             let executable = await CLILocator.locate(
                 "codex", configuredPath: configuredPath, knownLocations: CLILocator.codexKnownLocations)
         else { throw TranslationEngineError.executableNotFound(name: "codex") }
-        return CodexProvider(executable: executable, timeout: timeout)
+        return CodexProvider(executable: executable, model: model, timeout: timeout)
     }
 
     func arguments(workingDirectory: URL, schema: URL, output: URL) -> [String] {
@@ -36,6 +39,7 @@ public struct CodexProvider: TranslationProvider {
             "--sandbox", "read-only",
             "--cd", workingDirectory.path,
             "--config", "model_reasoning_effort=\"low\"",
+        ] + (model.map { ["--model", $0] } ?? []) + [
             "--output-schema", schema.path,
             "--output-last-message", output.path,
             "-",

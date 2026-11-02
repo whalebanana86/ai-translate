@@ -70,6 +70,7 @@ private struct EngineCard: View {
                     LocalModelStatus(settings: settings)
                 } else {
                     CLIStatusLine(status: settings.cliStatus[engine], name: engine.executableName ?? "")
+                    EngineModelPicker(settings: settings, engine: engine)
                 }
             }
             Spacer(minLength: 0)
@@ -91,6 +92,54 @@ private struct EngineCard: View {
             }
         }
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// CLI 엔진의 모델 고르기 (TASK-053). Claude는 Claude Code 별칭, Codex는 Codex가 받아 둔 목록과 기본값
+private struct EngineModelPicker: View {
+    @Bindable var settings: EngineSettings
+    let engine: TranslationEngine
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("모델").font(.callout)
+            picker
+                .labelsHidden()
+                .fixedSize()
+            Text(summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+    }
+
+    @ViewBuilder private var picker: some View {
+        if engine == .codex {
+            Picker("모델", selection: $settings.codexModel) {
+                Text("기본값").tag(String?.none)
+                ForEach(Self.options(settings.codexModels, keeping: settings.codexModel)) { model in
+                    Text(model.displayName).tag(Optional(model.id))
+                }
+            }
+        } else {
+            Picker("모델", selection: $settings.claudeModel) {
+                ForEach(Self.options(ClaudeCodeProvider.models, keeping: settings.claudeModel)) { model in
+                    Text(model.displayName).tag(model.id)
+                }
+            }
+        }
+    }
+
+    private var summary: String {
+        guard let selected = settings.model(for: engine) else { return "Codex에 들어 있는 기본 모델" }
+        let models = engine == .codex ? settings.codexModels : ClaudeCodeProvider.models
+        return models.first { $0.id == selected }?.summary ?? ""
+    }
+
+    /// 저장해 둔 모델이 목록에 없으면(Codex 목록이 바뀜) 그대로 고를 수 있게 넣는다
+    private static func options(_ models: [EngineModel], keeping selected: String?) -> [EngineModel] {
+        guard let selected, !models.contains(where: { $0.id == selected }) else { return models }
+        return models + [EngineModel(id: selected, displayName: selected, summary: "")]
     }
 }
 
@@ -166,7 +215,7 @@ private struct MemorySection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("번역 기억").font(.headline)
-            Text("번역한 글(원문과 번역)을 이 Mac에만 저장해, 같은 글을 다시 볼 때 바로 보여줍니다. 엔진마다 최근 500개까지.")
+            Text("번역한 글(원문과 번역)을 이 Mac에만 저장해, 같은 글을 다시 볼 때 바로 보여줍니다. 엔진·모델마다 최근 500개까지.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -21,6 +21,8 @@ final class EngineSettings {
     }
 
     private static let engineKey = "TranslationEngine"
+    private static let claudeModelKey = "ClaudeModel"
+    private static let codexModelKey = "CodexModel"
 
     /// 로컬 LLM(MLX)은 Apple Silicon에서만 돈다. Intel용 빌드(Rosetta 포함)에서는 고를 수 없다
     static var isAppleSilicon: Bool {
@@ -44,27 +46,70 @@ final class EngineSettings {
             prepare()
         }
     }
+    /// Claude Code 모델 별칭 (`ClaudeCodeProvider.models`, 기본 Haiku)
+    var claudeModel: String {
+        didSet {
+            guard claudeModel != oldValue else { return }
+            UserDefaults.standard.set(claudeModel, forKey: Self.claudeModelKey)
+            modelDidChange(for: .claudeCode)
+        }
+    }
+    /// Codex 모델. nil이면 Codex 기본 모델
+    var codexModel: String? {
+        didSet {
+            guard codexModel != oldValue else { return }
+            UserDefaults.standard.set(codexModel, forKey: Self.codexModelKey)
+            modelDidChange(for: .codex)
+        }
+    }
+    /// Codex가 받아 둔 모델 목록 (`CodexModelCatalog`). 설정 창을 열 때 다시 읽는다
+    private(set) var codexModels: [EngineModel] = []
     private(set) var cliStatus: [TranslationEngine: CLIStatus] = [:]
     private(set) var modelState: ModelState
 
     @ObservationIgnored var onEngineChange: (() -> Void)?
     @ObservationIgnored var onMemoryClear: (() -> Void)?
     @ObservationIgnored private var downloadTask: Task<Void, Never>?
+    /// 엔진과 그 엔진의 모델. 둘 중 하나라도 바뀌면 번역 엔진을 새로 만든다
+    private struct ProviderKey: Equatable {
+        var engine: TranslationEngine
+        var model: String?
+    }
+
     /// 엔진을 찾거나 모델을 불러오는 데 시간이 걸리므로 렌즈를 새로 만들어도 다시 쓴다
-    @ObservationIgnored private var cachedProvider: (engine: TranslationEngine, provider: any TranslationProvider)?
-    @ObservationIgnored private var preparing:
-        (engine: TranslationEngine, task: Task<any TranslationProvider, any Error>)?
+    @ObservationIgnored private var cachedProvider: (key: ProviderKey, provider: any TranslationProvider)?
+    @ObservationIgnored private var preparing: (key: ProviderKey, task: Task<any TranslationProvider, any Error>)?
 
     init() {
         // 이 Mac에서 쓸 수 없는 엔진이 저장돼 있으면(다른 Mac에서 옮겨 온 설정 등) 다시 고르게 한다
         engine = UserDefaults.standard.string(forKey: Self.engineKey).flatMap(TranslationEngine.init(rawValue:))
             .flatMap { $0.isSupported(onAppleSilicon: Self.isAppleSilicon) ? $0 : nil }
         modelState = ModelStore.standard.isInstalled(LocalModel.hyMT2) ? .installed : .notInstalled
+        claudeModel = UserDefaults.standard.string(forKey: Self.claudeModelKey) ?? ClaudeCodeProvider.defaultModel
+        codexModel = UserDefaults.standard.string(forKey: Self.codexModelKey)
+    }
+
+    /// 엔진에 넘길 모델. 로컬 엔진은 하나뿐이라 nil
+    func model(for engine: TranslationEngine) -> String? {
+        switch engine {
+        case .claudeCode: claudeModel
+        case .codex: codexModel
+        case .local: nil
+        }
+    }
+
+    /// 고른 엔진의 모델이 바뀌면 엔진을 바꿀 때처럼 렌즈가 새 모델로 다시 번역한다
+    private func modelDidChange(for engine: TranslationEngine) {
+        guard self.engine == engine else { return }
+        cachedProvider = nil
+        onEngineChange?()
+        prepare()
     }
 
     // MARK: CLI 엔진
 
     func refreshCLIStatus() {
+        codexModels = CodexModelCatalog.load()
         for engine in TranslationEngine.allCases {
             guard let name = engine.executableName else { continue }
             cliStatus[engine] = .checking
@@ -131,38 +176,45 @@ final class EngineSettings {
         Task { _ = try? await makeProvider() }
     }
 
-    func makeProvider() async throws -> any TranslationProvider {
+    private var currentKey: ProviderKey {
         let engine = engine ?? .claudeCode
-        if let cachedProvider, cachedProvider.engine == engine {
+        return ProviderKey(engine: engine, model: model(for: engine))
+    }
+
+    func makeProvider() async throws -> any TranslationProvider {
+        let key = currentKey
+        if let cachedProvider, cachedProvider.key == key {
             return cachedProvider.provider
         }
         // 미리 준비하는 중이면 같은 준비를 기다린다 (모델을 두 번 불러오지 않게)
-        if let preparing, preparing.engine == engine {
+        if let preparing, preparing.key == key {
             return try await preparing.task.value
         }
-        let task = Task { try await Self.provider(for: engine, model: localModel, store: store) }
-        preparing = (engine, task)
+        let task = Task { [localModel, store] in try await Self.provider(for: key, localModel: localModel, store: store)
+        }
+        preparing = (key, task)
         defer {
-            if preparing?.engine == engine {
+            if preparing?.key == key {
                 preparing = nil
             }
         }
         let provider = try await task.value
-        // 준비하는 사이에 엔진이 바뀌었으면 기억하지 않는다
-        if engine == (self.engine ?? .claudeCode) {
-            cachedProvider = (engine, provider)
+        // 준비하는 사이에 엔진·모델이 바뀌었으면 기억하지 않는다
+        if key == currentKey {
+            cachedProvider = (key, provider)
         }
         return provider
     }
 
-    private static func provider(for engine: TranslationEngine, model: LocalModel, store: ModelStore) async throws
-        -> any TranslationProvider
+    private static func provider(for key: ProviderKey, localModel model: LocalModel, store: ModelStore)
+        async throws -> any TranslationProvider
     {
-        switch engine {
+        switch key.engine {
         case .claudeCode:
-            return try await ClaudeCodeProvider.locate()
+            let alias = key.model ?? ClaudeCodeProvider.defaultModel
+            return try await ClaudeCodeProvider.locate(model: alias, timeout: ClaudeCodeProvider.timeout(for: alias))
         case .codex:
-            return try await CodexProvider.locate()
+            return try await CodexProvider.locate(model: key.model)
         case .local:
             guard isAppleSilicon else { throw LocalEngineError.unsupportedMac }
             guard store.isInstalled(model) else { throw LocalEngineError.modelNotInstalled }
