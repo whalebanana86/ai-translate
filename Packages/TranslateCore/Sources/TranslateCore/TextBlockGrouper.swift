@@ -68,6 +68,12 @@ public enum TextBlockGrouper {
         }
     }
 
+    /// 굵기(보통 ↔ semibold 이상)가 다르고 획 두께 비율(획 ÷ 글자 크기)도 이 배수보다 다를 때만 굵기가 다른 줄로 본다.
+    /// 보통 ↔ semibold가 약 1.3배, 보통 ↔ bold가 약 1.5배다. 하나만 보면 같은 문단이 갈라졌다:
+    /// - 굵기 이름만: 목록 항목이 넘친 마지막 줄 "version"(x 높이 글자뿐)이 0.119로 경계(0.118)를 넘어 semibold(앞줄 0.103, 1.16배)
+    /// - 비율만: 문단 끝 줄 파란 링크 "hackertube.org!"는 대비가 낮아 획을 가늘게 쟀다(0.075, 앞줄 0.104, 1.39배, 둘 다 보통)
+    static let maxStrokeRatio: CGFloat = 1.25
+
     /// 글자 크기나 굵기가 다른 줄. 제목 바로 아래 본문이 한 문단이 되어 제목이 본문 굵기로 그려졌다 (TASK-060)
     static func differInStyle(_ first: LineStyle?, _ second: LineStyle?) -> Bool {
         guard let first, let second, first.pixelSize > 0, second.pixelSize > 0 else { return false }
@@ -75,8 +81,12 @@ public enum TextBlockGrouper {
         if ratio > maxStyleSizeRatio {
             return true
         }
-        guard let firstWeight = first.weight, let secondWeight = second.weight else { return false }
+        guard let firstStroke = first.strokeRatio, let secondStroke = second.strokeRatio, firstStroke > 0,
+            secondStroke > 0,
+            let firstWeight = first.weight, let secondWeight = second.weight
+        else { return false }
         return (firstWeight == .regular) != (secondWeight == .regular)
+            && max(firstStroke, secondStroke) / min(firstStroke, secondStroke) > maxStrokeRatio
     }
 
     static func isNoise(_ line: RecognizedLine) -> Bool {
@@ -206,6 +216,11 @@ public enum TextBlockGrouper {
             return "\n"
         }
         guard let last = previous.text.unicodeScalars.last, let first = next.text.unicodeScalars.first else {
+            return ""
+        }
+        // 하이픈이 든 단어가 하이픈 뒤에서 줄바꿈됐다("idiocracy-" + "grade"): 빈칸을 넣으면 "idiocracy- grade"가 된다
+        if previous.text.last == "-", previous.text.dropLast().last?.isLetter == true, next.text.first?.isLetter == true
+        {
             return ""
         }
         return isWrittenWithoutSpaces(last) || isWrittenWithoutSpaces(first) ? "" : " "
