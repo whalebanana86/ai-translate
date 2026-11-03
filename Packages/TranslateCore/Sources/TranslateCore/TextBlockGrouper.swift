@@ -49,7 +49,7 @@ public enum TextBlockGrouper {
             // 다단 구성에서는 단마다 줄이 번갈아 나오므로 직전 문단만이 아니라 모든 문단의 마지막 줄과 비교한다
             let index = blocks.lastIndex { block in
                 guard let last = block.last else { return false }
-                return continues(last.0, with: line) && !differInStyle(last.1, style)
+                return continues(last.0, with: line, styles: (last.1, style)) && !differInStyle(last.1, style)
                     && !sitsInRow(line, among: sortedLines, under: block.map(\.0))
             }
             if let index {
@@ -83,9 +83,18 @@ public enum TextBlockGrouper {
         line.confidence < noiseConfidence && line.text.letterCount < noiseMaxLetters
     }
 
+    /// 캡처에서 잰 기준선 사이 거리가 글자 크기의 이 배수 이하면 다음 줄로 잇는다. 줄 상자 규칙(간격 ≤ 상자 높이 × 0.8)과 같은 폭이다
+    /// (상자 높이 ≈ 글자 크기 ÷ 0.93)
+    static let maxLinePitchRatio: CGFloat = 2
+
     /// `line`이 `previous` 바로 다음 줄로 이어지는지 판단한다. 글자가 거의 없는 줄(버튼·숫자), 작성자·시각 줄, 펼치기 링크는
     /// 어떤 줄과도 잇지 않는다.
-    static func continues(_ previous: RecognizedLine, with line: RecognizedLine) -> Bool {
+    /// - Parameter styles: 두 줄을 캡처에서 잰 값(`TextStyleMeter`). 둘 다 기준선이 있으면 줄 상자 대신 기준선 사이 거리로 본다:
+    ///   OCR 줄 상자 높이는 한 문단 안에서도 글자 크기의 0.5~1.3배로 들쭉날쭉해(Chrome 측정, 28px 글자에 상자 15~37px) 상자 높이 비율·
+    ///   간격 규칙에 걸려 문단이 줄마다 나뉘었다 (TASK-062)
+    static func continues(
+        _ previous: RecognizedLine, with line: RecognizedLine, styles: (LineStyle?, LineStyle?) = (nil, nil)
+    ) -> Bool {
         guard previous.text.hasWord, line.text.hasWord, !isByline(previous), !isByline(line),
             !isExpandLink(previous), !isExpandLink(line)
         else {
@@ -93,10 +102,15 @@ public enum TextBlockGrouper {
         }
         let above = previous.boundingBox
         let below = line.boundingBox
+        let overlapsHorizontally = below.minX < above.maxX && below.maxX > above.minX
+        if let first = styles.0, let second = styles.1, let top = first.baseline, let bottom = second.baseline {
+            let size = min(first.pixelSize, second.pixelSize)
+            let pitch = bottom - top
+            return overlapsHorizontally && pitch > size * 0.5 && pitch <= size * maxLinePitchRatio
+        }
         let height = min(above.height, below.height)
         guard height > 0 else { return false }
         let gap = below.minY - above.maxY
-        let overlapsHorizontally = below.minX < above.maxX && below.maxX > above.minX
         return gap >= -height * 0.5
             && gap <= height * maxLineGapRatio
             && max(above.height, below.height) / height <= maxHeightRatio

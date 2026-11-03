@@ -184,6 +184,8 @@ final class LensSession {
     private var weightMemory = TextWeightMemory()
     /// `blocks`와 같은 순서의 번역 글자 굵기
     private var weights: [TextWeight] = []
+    /// `blocks`와 같은 순서로 캡처에서 잰 줄 간격 (TASK-062)
+    private var textStyles: [TextStyle?] = []
     /// 중간 글로 화면을 다시 그리는 최소 간격 (생성은 초당 약 100토큰)
     private static let partialRefreshInterval: Duration = .milliseconds(50)
     /// 이동·크기 조절 중이면 시작 시점의 마우스 위치와 렌즈 영역
@@ -399,6 +401,7 @@ final class LensSession {
             weights = recognized.indices.map {
                 weightMemory.weight(for: recognized[$0].text, measured: styles[$0]?.weight)
             }
+            textStyles = styles
             if model.isWatchingVideo != tracker.isKeepingUp {
                 model.isWatchingVideo = tracker.isKeepingUp
             }
@@ -711,11 +714,14 @@ final class LensSession {
             if case .pending = content, let partial = partials[block.text], !partial.isEmpty {
                 content = .translated(partial)
             }
+            let fontSize =
+                fontSizes.indices.contains(index) ? fontSizes[index] : LensGeometry.fontSize(of: block, scale: scale)
+            let style = textStyles.indices.contains(index) ? textStyles[index] : nil
             return LensModel.Paragraph(
-                id: index, content: content, frame: paragraphFrame,
-                fontSize: fontSizes.indices.contains(index)
-                    ? fontSizes[index] : LensGeometry.fontSize(of: block, scale: scale),
+                id: index, content: content, frame: paragraphFrame, fontSize: fontSize,
                 weight: weights.indices.contains(index) ? weights[index] : .regular,
+                // 자막은 자리 계산(가운데·아래 끝, 이중 자막)이 기본 줄 높이를 전제로 해 원문 줄 간격을 쓰지 않는다
+                lineHeight: paragraphFrame.isCentered ? nil : style?.lineHeight.map { $0 / scale },
                 colors: colors.indices.contains(index) ? colors[index] : .plain,
                 emojis: emojis.indices.contains(index) ? emojis[index] : [])
         }

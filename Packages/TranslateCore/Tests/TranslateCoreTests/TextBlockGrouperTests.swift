@@ -307,4 +307,30 @@ struct TextBlockGrouperTests {
     @Test func returnsNoBlocksForNoLines() {
         #expect(TextBlockGrouper.group([]).isEmpty)
     }
+
+    @Test func joinsLinesByMeasuredBaselinesWhenOcrBoxesDisagree() {
+        // 28px 글자 세 줄(기준선 사이 42px)인데 OCR 상자 높이가 15·37·22px로 들쭉날쭉하다 (Chrome 측정에서 실제로 나왔다).
+        // 상자로 보면 높이 비율·간격 규칙에 걸려 나뉜다
+        let lines = [
+            RecognizedLine(
+                text: "The new offline mode keeps", confidence: 1,
+                boundingBox: CGRect(x: 40, y: 47, width: 500, height: 15)),
+            RecognizedLine(
+                text: "your drafts on the device", confidence: 1,
+                boundingBox: CGRect(x: 40, y: 72, width: 480, height: 37)),
+            RecognizedLine(
+                text: "and syncs them later.", confidence: 1, boundingBox: CGRect(x: 40, y: 124, width: 400, height: 22)
+            ),
+        ]
+        let styles = [0, 1, 2].map {
+            LineStyle(pixelSize: 28, strokeRatio: 0.1, weight: .regular, baseline: 66 + CGFloat($0) * 42)
+        }
+
+        #expect(TextBlockGrouper.group(lines).count > 1)
+        #expect(TextBlockGrouper.group(lines, styles: styles).count == 1)
+        // 기준선 사이가 글자 크기 두 배를 넘으면(문단 사이) 잇지 않는다
+        var apart = styles
+        apart[2].baseline = 66 + 42 + 60
+        #expect(TextBlockGrouper.group(lines, styles: apart).count == 2)
+    }
 }

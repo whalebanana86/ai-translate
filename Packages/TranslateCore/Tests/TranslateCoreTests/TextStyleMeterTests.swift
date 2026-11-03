@@ -121,6 +121,33 @@ struct TextStyleMeterTests {
         #expect(styles.last??.weight == .regular)
     }
 
+    @Test(arguments: [("Helvetica", 1.5), ("AppleSDGothicNeo-Regular", 1.8)])
+    func measuresLineHeightOfParagraph(_ font: String, _ ratio: Double) async throws {
+        let pitch = 32 * ratio
+        let texts =
+            font == "Helvetica"
+            ? [
+                "The new offline mode keeps your drafts on", "the device and syncs them later when you",
+                "are back online again.",
+            ]
+            : ["오프라인 모드는 초안을 기기에 보관했다가", "다시 연결되면 나중에 동기화합니다.", "배터리도 더 오래갑니다."]
+        let lines = texts.enumerated().map {
+            TextImage.Line(text: $1, x: 40, top: 40 + CGFloat($0) * pitch, size: 32, font: font)
+        }
+
+        let styles = try await measure(lines, height: 300)
+
+        #expect(styles.count == 1)
+        let measured = try #require(styles.first??.lineHeight)
+        #expect(abs(measured / pitch - 1) < 0.03)
+    }
+
+    @Test func singleLineHasNoLineHeight() async throws {
+        let styles = try await measure([.init(text: "Start free. Cancel anytime.", x: 40, top: 60, size: 40)])
+
+        #expect(styles.first??.lineHeight == nil)
+    }
+
     @Test func keepsLinesOfOneParagraphTogether() {
         let size = LineStyle(pixelSize: 30, strokeRatio: 0.10, weight: .regular)
         // 같은 문단 줄의 측정 흔들림, 재지 못한 줄
