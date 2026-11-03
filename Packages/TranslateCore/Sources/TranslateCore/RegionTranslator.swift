@@ -28,7 +28,8 @@ public struct RegionTranslator: Sendable {
     }
 
     /// 문단을 번역한다. 번역할 글자가 없는 문단(숫자·기호·버튼)과 이미 대상 언어인 문단은 엔진에 보내지 않고 원문을 그대로 쓴다.
-    /// 번역할 문단이 하나도 없으면 엔진을 부르지 않는다.
+    /// 번역할 문단이 하나도 없으면 엔진을 부르지 않는다. 엔진에는 OCR이 "AI"를 "Al"로 읽은 것을 고쳐 보낸다(`AIMisreading`).
+    /// 돌려주는 원문 문단은 OCR 그대로다
     public func translate(_ blocks: [TextBlock], to language: TargetLanguage) async throws -> [TranslatedBlock] {
         try await translate(blocks, to: language) { _, _ in }
     }
@@ -44,7 +45,7 @@ public struct RegionTranslator: Sendable {
             return blocks.map { TranslatedBlock(source: $0, translation: $0.text) }
         }
         let request = TranslationRequest(
-            target: language.promptName, segments: translatable.map(\.text), style: style)
+            target: language.promptName, segments: translatable.map { AIMisreading.corrected($0.text) }, style: style)
         let response = try await provider.translate(request) { index, partial in
             guard translatable.indices.contains(index) else { return }
             onPartial(translatable[index], partial)

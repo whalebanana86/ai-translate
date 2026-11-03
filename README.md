@@ -182,7 +182,7 @@
 | 굵기 재기 | 26px 이상에서 보통 ↔ 굵게를 바꿔 본 줄 없음 (그린 글 1663줄) |
 | 줄 간격 재기 | Chrome 문단(줄 높이 1.2~1.8, 글꼴 10개) 오차 중간 0.3%, 최대 1.7% |
 
-결정과 근거, 측정 기록은 [AGENTS.md](AGENTS.md)와 `.agent/archive/TASK-*.md` 에 있다.
+결정과 작업 규칙은 [AGENTS.md](AGENTS.md), 기능별 동작과 근거·측정 기록은 [docs/design](docs/design/)과 `.agent/archive/TASK-*.md` 에 있다.
 
 ### 개발
 
@@ -195,7 +195,7 @@ xcodegen generate                                  # AITranslate.xcodeproj 생�
 ./scripts/sync-strings.sh                          # 빌드 뒤 새 화면 글을 문자열 카탈로그에 더하기 (영어 번역은 직접 채움)
 swift test --package-path Packages/TranslateCore   # 로직 테스트
 AITRANSLATE_LIVE_TESTS=1 swift test --package-path Packages/TranslateCore --filter LiveTests   # 실제 엔진 호출 (수동)
-./scripts/auto-fix-loop.sh                         # 타입 검사·Lint·빌드·테스트 (작업을 끝내기 전에 꼭)
+./scripts/auto-fix-loop.sh                         # 문서 크기·타입 검사·Lint·빌드·테스트 (작업을 끝내기 전에 꼭)
 ```
 
 작업 규칙(에이전트 포함)은 [AGENTS.md](AGENTS.md)에 있다. 요청마다 `.agent/tasks/TASK-ID.md` 에 요구사항과 완료 조건을 적고, `auto-fix-loop.sh` 검증을 통과해야 완료로 본다. 테스트할 수 있는 로직은 `TranslateCore` 에 두고 앱 타깃은 얇게 둔다.

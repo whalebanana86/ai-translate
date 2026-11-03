@@ -182,7 +182,7 @@ Screen text is only ever passed as `{"target": "Korean", "segments": [...]}` JSO
 | Text weight | No line read as regular when bold or the other way round at 26 px and up (1663 rendered lines) |
 | Line spacing | Chrome paragraphs (line-height 1.2–1.8, 10 fonts): median error 0.3%, max 1.7% |
 
-Decisions, reasons and measurement records are in [AGENTS.md](AGENTS.md) (Korean) and `.agent/archive/TASK-*.md`.
+Decisions and working rules are in [AGENTS.md](AGENTS.md); how each part works, with reasons and measurements, is in [docs/design](docs/design/) and `.agent/archive/TASK-*.md` (all in Korean).
 
 ### Development
 
@@ -195,7 +195,7 @@ xcodegen generate                                  # Generate AITranslate.xcodep
 ./scripts/sync-strings.sh                          # after a build, add new UI strings to the string catalogs (fill in English yourself)
 swift test --package-path Packages/TranslateCore   # Logic tests
 AITRANSLATE_LIVE_TESTS=1 swift test --package-path Packages/TranslateCore --filter LiveTests   # Real engine calls (manual)
-./scripts/auto-fix-loop.sh                         # Type check, lint, build, tests (required before finishing a task)
+./scripts/auto-fix-loop.sh                         # Doc size, type check, lint, build, tests (required before finishing a task)
 ```
 
 Working rules (for agents too) are in [AGENTS.md](AGENTS.md). Each request gets `.agent/tasks/TASK-ID.md` with requirements and acceptance criteria, and is done only after `auto-fix-loop.sh` passes. Testable logic lives in `TranslateCore`; the app target stays thin.

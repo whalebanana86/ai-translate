@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 자동 검증 루프의 한 회차를 실행한다: 타입 검사 → Lint → 빌드 → 테스트.
+# 자동 검증 루프의 한 회차를 실행한다: 문서 크기 → 타입 검사 → Lint → 빌드 → 테스트.
 # 재시도 제한과 실행 기록은 이 스크립트가 강제한다 (AGENTS.md 5.3).
 #
 # 사용법
@@ -18,7 +18,9 @@ set -uo pipefail
 # 제한값. 환경 변수로 덮어쓰지 않는다
 readonly MAX_RETRIES=3 # 최초 실행 포함 총 MAX_RETRIES+1회
 readonly TIME_LIMIT_SEC=$((15 * 60))
-readonly STEPS="typecheck lint build test"
+readonly STEPS="docs typecheck lint build test"
+# AGENTS.md는 모든 작업의 컨텍스트에 실리므로 크기를 제한한다 (AGENTS.md 5.6, TASK-067·068)
+readonly MAX_AGENTS_BYTES=$((24 * 1024))
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 64
@@ -31,6 +33,13 @@ usage() {
 
 step_command() {
     case "$1" in
+    docs)
+        echo "size=\$(wc -c <AGENTS.md | tr -d ' ');" \
+            "if ((size > $MAX_AGENTS_BYTES)); then" \
+            "echo \"error: AGENTS.md가 \${size}바이트로 상한 ${MAX_AGENTS_BYTES}바이트(24KB)를 넘는다.\";" \
+            "echo '기능별 동작·측정값·경위를 docs/design/<영역>.md로 옮긴다 (AGENTS.md 5.6)';" \
+            "exit 1; fi"
+        ;;
     typecheck)
         echo "swift build --package-path Packages/TranslateCore -Xswiftc -warnings-as-errors"
         ;;
