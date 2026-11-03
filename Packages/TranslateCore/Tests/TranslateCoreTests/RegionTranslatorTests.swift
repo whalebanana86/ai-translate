@@ -101,6 +101,17 @@ struct RegionTranslatorTests {
         #expect(translated.map(\.translation) == ["답글 4개", "전설은 죽지 않는다."])
     }
 
+    @Test func sendsMisreadAICorrectedButKeepsSourceText() async throws {
+        let blocks = TextBlockGrouper.group([line("Generative Al for everyone", y: 0)])
+        let provider = RecordingProvider(translations: ["모두를 위한 생성형 AI"])
+
+        let translated = try await RegionTranslator(provider: provider).translate(blocks, to: .korean)
+
+        #expect(await provider.requests.map(\.segments) == [["Generative AI for everyone"]])
+        #expect(translated.map(\.source.text) == ["Generative Al for everyone"])
+        #expect(translated.map(\.translation) == ["모두를 위한 생성형 AI"])
+    }
+
     @Test func passesStyleToEngine() async throws {
         let provider = RecordingProvider(translations: ["무료로 시작하고 나중에 업그레이드합니다.", "언제든지 해지할 수 있습니다."])
 

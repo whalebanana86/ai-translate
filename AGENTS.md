@@ -72,6 +72,12 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
     하이픈이 든 단어가 하이픈 뒤에서 넘어간 줄("idiocracy-" + "grade")은 빈칸 없이 잇는다(TASK-064)
   - 언어 자동 감지 때문에 영어 줄 끝의 작은 한글이 잘못 인식될 수 있다(예: "5시간" → `51|Zł`). 자동 감지를 끄면 일본어가
     빠지므로 감수한다. OCR 오인식("AI" → "Al")은 프롬프트에서 의도된 뜻으로 번역하게 한다
+  - "AI" → "Al"(소문자 L)은 엔진에 보내기 전에 문맥으로 고친다(`AIMisreading`, TASK-066 사용자 보고: 로컬 모델이 "알"로 번역,
+    프롬프트 안내가 없다). SF·Helvetica·Arial은 I와 l의 높이가 같고 폭 차이가 글자 크기의 1% 안이라 Vision이 늘 "Al"로 읽고
+    (단어 힌트 `customWords`도 효과 없음) 픽셀로는 가릴 수 없다. 소문자 뒤("OpenAl")는 늘, 따로 쓴 "Al"은 다음 단어가 이름 모양
+    ("Al Gore", "Al-Nassr", 단 단어마다 대문자인 제목은 고침)이거나 "Al"이 낱말인 언어(스페인어·이탈리아어 등 확률 합 0.9 이상)·
+    알루미늄 글·아이디("@Al")가 아니면 고친다. 원문 문단 글(번역 기억 열쇠)은 OCR 그대로다. 제목이 아닌 글의 대문자 단어 앞
+    "AI"("Use Al Studio")는 고치지 못한다(macOS 이름 찾기 `NLTagger`는 "Al Pacino"를 놓치고 "Al tools"를 이름으로 봐 쓰지 않음)
 - 전역 단축키: Carbon `RegisterEventHotKey` 기반(KeyboardShortcuts 패키지). `NSEvent` 전역 모니터는 손쉬운 사용 권한이 필요하므로 쓰지 않는다
   - 기본값 ⌘⇧1 (`KeyboardShortcuts.Name.translateRegion`, `App/AppDelegate.swift`). 패키지 3.1.0
 - 번역 렌즈: 포커스를 빼앗지 않는 패널 세 개. 화면: `App/TranslationLens.swift`, 동작: `App/TranslationLensController.swift`
