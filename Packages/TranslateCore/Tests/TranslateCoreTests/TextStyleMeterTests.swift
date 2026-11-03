@@ -154,6 +154,16 @@ struct TextStyleMeterTests {
         #expect(!TextBlockGrouper.differInStyle(size, LineStyle(pixelSize: 31.5, strokeRatio: 0.11, weight: .regular)))
         #expect(!TextBlockGrouper.differInStyle(size, nil))
         #expect(!TextBlockGrouper.differInStyle(size, LineStyle(pixelSize: 30, strokeRatio: nil, weight: nil)))
+        // 목록 항목이 넘친 짧은 줄 "version": 굵기 이름은 경계를 넘었지만(semibold) 획 비율은 1.16배라 같은 문단
+        #expect(
+            !TextBlockGrouper.differInStyle(
+                LineStyle(pixelSize: 33.5, strokeRatio: 0.103, weight: .regular),
+                LineStyle(pixelSize: 29.9, strokeRatio: 0.119, weight: .semibold)))
+        // 문단 끝 줄의 파란 링크: 대비가 낮아 획을 가늘게 재지만 둘 다 보통
+        #expect(
+            !TextBlockGrouper.differInStyle(
+                LineStyle(pixelSize: 33.3, strokeRatio: 0.104, weight: .regular),
+                LineStyle(pixelSize: 31.3, strokeRatio: 0.075, weight: .regular)))
         // 1.25배 넘게 큰 줄, 굵은 줄
         #expect(TextBlockGrouper.differInStyle(size, LineStyle(pixelSize: 38, strokeRatio: 0.10, weight: .regular)))
         #expect(TextBlockGrouper.differInStyle(size, LineStyle(pixelSize: 30, strokeRatio: 0.15, weight: .bold)))

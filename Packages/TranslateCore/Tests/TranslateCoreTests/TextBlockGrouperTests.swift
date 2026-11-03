@@ -333,4 +333,17 @@ struct TextBlockGrouperTests {
         apart[2].baseline = 66 + 42 + 60
         #expect(TextBlockGrouper.group(lines, styles: apart).count == 2)
     }
+
+    @Test func joinsWordBrokenAfterItsHyphenWithoutSpace() {
+        let first = RecognizedLine(
+            text: "truly terrible idiocracy-", confidence: 1, boundingBox: CGRect(x: 40, y: 40, width: 700, height: 30))
+        let second = RecognizedLine(
+            text: "grade content. I'm sure", confidence: 1, boundingBox: CGRect(x: 40, y: 88, width: 400, height: 30))
+        let dash = RecognizedLine(
+            text: "the same tired topics -", confidence: 1, boundingBox: CGRect(x: 40, y: 40, width: 700, height: 30))
+
+        #expect(TextBlockGrouper.separator(between: first, and: second, blockRight: 740) == "")
+        // 단어 뒤가 아닌 줄표는 띄어 쓴다
+        #expect(TextBlockGrouper.separator(between: dash, and: second, blockRight: 740) == " ")
+    }
 }
