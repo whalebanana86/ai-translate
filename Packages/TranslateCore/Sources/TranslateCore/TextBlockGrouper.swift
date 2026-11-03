@@ -1,4 +1,5 @@
 import CoreGraphics
+import Synchronization
 
 /// 번역 단위가 되는 문단. 줄 단위로 번역하면 줄바꿈 위치에서 문장이 쪼개지므로 줄을 이어 붙인다.
 public struct TextBlock: Equatable, Sendable {
@@ -131,12 +132,15 @@ public enum TextBlockGrouper {
         return (1...maxBylineTimeWords).contains(time.count) && time.last?.contains(where: \.isNumber) == true
     }
 
+    /// 줄 끝 상대 시각. 한 번만 만든다: 부를 때마다 만들면 한 번 약 0.24ms(찾기는 0.01ms)라, 줄마다 모든 문단과 비교하는 묶기가
+    /// 27줄 화면에서 약 220ms 걸렸다 (TASK-061). `Regex`는 `Sendable`이 아니라 잠금 안에 둔다
+    private static let relativeTime = Mutex(
+        #/(?:\d+\s*(?:초|분|시간|일|주|개월|달|년)\s*전|\d+\s+(?:second|minute|hour|day|week|month|year)s?\s+ago|\d+\s*(?:秒|分|分钟|時間|小时|日|天|週間|周|か月|ヶ月|カ月|个月|年)\s*前)\s*(?:[(（]\s*(?:수정됨|edited|編集済み|已编辑|已編輯)\s*[)）])?\s*$/#
+            .ignoresCase())
+
     private static func endsWithRelativeTime(_ text: String) -> Bool {
-        let relativeTime =
-            #/(?:\d+\s*(?:초|분|시간|일|주|개월|달|년)\s*전|\d+\s+(?:second|minute|hour|day|week|month|year)s?\s+ago|\d+\s*(?:秒|分|分钟|時間|小时|日|天|週間|周|か月|ヶ月|カ月|个月|年)\s*前)\s*(?:[(（]\s*(?:수정됨|edited|編集済み|已编辑|已編輯)\s*[)）])?\s*$/#
-            .ignoresCase()
-        guard let match = text.firstMatch(of: relativeTime) else { return false }
-        return text[..<match.range.lowerBound].split(whereSeparator: \.isWhitespace).count <= maxBylineWords
+        guard let start = relativeTime.withLock({ text.firstMatch(of: $0)?.range.lowerBound }) else { return false }
+        return text[..<start].split(whereSeparator: \.isWhitespace).count <= maxBylineWords
     }
 
     /// 잘린 글을 펼치거나 접는 링크 (공백을 빼고 소문자로 비교한다)
