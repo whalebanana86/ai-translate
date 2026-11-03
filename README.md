@@ -212,4 +212,4 @@ AITRANSLATE_LIVE_TESTS=1 swift test --package-path Packages/TranslateCore --filt
 
 ## 라이선스
 
-아직 정하지 않았어요.
+[MIT](LICENSE)
