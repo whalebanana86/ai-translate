@@ -195,7 +195,7 @@ xcodegen generate                                  # AITranslate.xcodeproj 생�
 ./scripts/sync-strings.sh                          # 빌드 뒤 새 화면 글을 문자열 카탈로그에 더하기 (영어 번역은 직접 채움)
 swift test --package-path Packages/TranslateCore   # 로직 테스트
 AITRANSLATE_LIVE_TESTS=1 swift test --package-path Packages/TranslateCore --filter LiveTests   # 실제 엔진 호출 (수동)
-./scripts/auto-fix-loop.sh                         # 타입 검사·Lint·빌드·테스트 (작업을 끝내기 전에 꼭)
+./scripts/auto-fix-loop.sh                         # 문서 크기·타입 검사·Lint·빌드·테스트 (작업을 끝내기 전에 꼭)
 ```
 
 작업 규칙(에이전트 포함)은 [AGENTS.md](AGENTS.md)에 있다. 요청마다 `.agent/tasks/TASK-ID.md` 에 요구사항과 완료 조건을 적고, `auto-fix-loop.sh` 검증을 통과해야 완료로 본다. 테스트할 수 있는 로직은 `TranslateCore` 에 두고 앱 타깃은 얇게 둔다.

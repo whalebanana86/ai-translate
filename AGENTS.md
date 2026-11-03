@@ -76,7 +76,7 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
 project.yml                # XcodeGen 프로젝트 정의
 App/                       # 앱 타깃: 메뉴바, 오버레이, 번역 렌즈 등 UI
 Packages/TranslateCore/    # 로직: 좌표 변환, OCR, 번역 엔진, 캐시. `swift test`로 검증
-scripts/auto-fix-loop.sh   # 타입 검사·Lint·빌드·테스트 자동 검증
+scripts/auto-fix-loop.sh   # 문서 크기·타입 검사·Lint·빌드·테스트 자동 검증
 docs/design/               # 영역별 설계 문서 (3장 표)
 .agent/                    # 작업 관리 (6장 참고)
 ```
@@ -208,7 +208,7 @@ swift format format -i -r --configuration .swift-format App Packages/TranslateCo
 
 `auto-fix-loop.sh` 동작 (제한값은 스크립트 상단 상수이며 환경 변수로 바꿀 수 없다):
 
-- 검증 단계: 타입 검사(`swift build`, 경고=에러) → Lint(`swift format lint --strict`) → 빌드(XcodeGen + `xcodebuild`) → 테스트(`swift test`)
+- 검증 단계: 문서 크기(`AGENTS.md` 24KB 이하, 5.6) → 타입 검사(`swift build`, 경고=에러) → Lint(`swift format lint --strict`) → 빌드(XcodeGen + `xcodebuild`) → 테스트(`swift test`)
 - 최대 재시도 3회 (최초 실행 포함 총 4회), 루프의 첫 실행부터 15분 제한
 - 직전 실패와 같은 오류가 다시 나면 즉시 중단한다. 줄 번호만 바뀐 같은 오류도 같은 오류로 본다
 - 실행할 때마다 결과(pass/fail/stopped)가 `.agent/attempts/TASK-ID.jsonl`에 자동 기록된다
@@ -245,7 +245,7 @@ swift format format -i -r --configuration .swift-format App Packages/TranslateCo
 - 작업 기록을 임의로 삭제하거나 검증 실패를 성공으로 변경하지 않는다.
 - `AGENTS.md`는 모든 작업의 컨텍스트에 실리므로 모든 작업에 필요한 규칙·결정만 둔다. 기능의 동작·측정값·경위는
   `docs/design/<영역>.md`에, 작업 하나의 상세는 TASK 파일에, 코드 한 곳에 묶인 이유는 코드 주석에 적는다.
-  `AGENTS.md`는 24KB 이하로 유지한다(`wc -c AGENTS.md`, 2026-11-03 나누기 전 51.7KB). 넘으면 영역 문서로 옮긴다.
+  `AGENTS.md`는 24KB 이하로 유지한다(2026-11-03 나누기 전 51.7KB). 넘으면 검증 루프의 문서 크기 단계가 실패하므로 영역 문서로 옮긴다.
   새 영역 문서를 만들면 3장 표에 더한다
 
 ### 5.7 안전 규칙
