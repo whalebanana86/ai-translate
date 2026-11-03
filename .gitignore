@@ -7,3 +7,6 @@
 .build/
 DerivedData/
 xcuserdata/
+
+# 홍보 자료 (영상·글귀, 저장소에 올리지 않음)
+promo/

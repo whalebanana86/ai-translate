@@ -212,4 +212,4 @@ Working rules (for agents too) are in [AGENTS.md](AGENTS.md). Each request gets 
 
 ## License
 
-Not decided yet.
+[MIT](LICENSE)
