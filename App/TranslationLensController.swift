@@ -180,6 +180,10 @@ final class LensSession {
     private var fontSizer = FontSizer()
     /// `blocks`와 같은 순서의 번역 글자 크기
     private var fontSizes: [CGFloat] = []
+    /// 같은 글은 같은 굵기로 그린다 (처음 잰 굵기를 기억한다)
+    private var weightMemory = TextWeightMemory()
+    /// `blocks`와 같은 순서의 번역 글자 굵기
+    private var weights: [TextWeight] = []
     /// 중간 글로 화면을 다시 그리는 최소 간격 (생성은 초당 약 100토큰)
     private static let partialRefreshInterval: Duration = .milliseconds(50)
     /// 이동·크기 조절 중이면 시작 시점의 마우스 위치와 렌즈 영역
@@ -354,13 +358,17 @@ final class LensSession {
             let settled = ContinuousClock.now
             let lines = try await recognizer.recognize(image)
             let ocred = ContinuousClock.now
-            // 이모지 찾기·색 뽑기는 화면 픽셀을 다시 읽으므로 메인 스레드 밖에서 한다. 이모지는 번역 글 안에 그리려고 오려 둔다
-            // (메모리에만 둔다)
-            let (recognized, sampled, emojiImages) = await Task.detached {
-                let blocks = TextBlockGrouper.group(EmojiFinder.apply(to: lines, in: image))
+            // 이모지 찾기·색 뽑기·글자 크기와 굵기 재기는 화면 픽셀을 다시 읽으므로 메인 스레드 밖에서 한다. 이모지는 번역 글 안에
+            // 그리려고 오려 둔다 (메모리에만 둔다)
+            let (recognized, sampled, emojiImages, styles) = await Task.detached {
+                let lines = EmojiFinder.apply(to: lines, in: image)
+                // 줄마다 잰 크기·굵기가 다르면 문단을 나눈다 (제목과 바로 아래 본문)
+                let lineStyles = TextStyleMeter.measure(lines, in: image)
+                let blocks = TextBlockGrouper.group(lines, styles: lineStyles)
                 return (
                     blocks, blocks.map { BlockColors.sample(image, in: $0.boundingBox) ?? .plain },
-                    blocks.map { $0.emojis.compactMap { image.cropping(to: $0.integral) } }
+                    blocks.map { $0.emojis.compactMap { image.cropping(to: $0.integral) } },
+                    TextStyleMeter.styles(of: blocks, lines: lines, lineStyles: lineStyles)
                 )
             }
             .value
@@ -378,14 +386,19 @@ final class LensSession {
                 captionDetector.reset()
                 captions = []
             }
-            // 자막은 기억한 줄 높이, 그 밖에는 문단 줄 높이의 중간값으로 정하고, 비슷한 높이는 한 크기로 묶는다
+            // 자막은 기억한 줄 높이(흔들리지 않게), 그 밖에는 캡처에서 잰 원문 글자 크기(못 재면 줄 높이)로 정하고, 비슷한 크기는
+            // 한 크기로 묶는다
             let language = model.language
             fontSizes = fontSizer.fontSizes(
                 for: recognized.indices.map { index in
-                    captions.indices.contains(index)
-                        ? captions[index]?.lineHeight ?? FontSizer.lineHeight(of: recognized[index])
-                        : FontSizer.lineHeight(of: recognized[index])
+                    if captions.indices.contains(index), let caption = captions[index] {
+                        return caption.lineHeight * LensGeometry.fontSizePerLineHeight
+                    }
+                    return styles[index]?.pixelSize ?? FontSizer.pixelSize(of: recognized[index])
                 }, drawn: recognized.map { $0.needsTranslation(to: language) }, scale: selection.scale)
+            weights = recognized.indices.map {
+                weightMemory.weight(for: recognized[$0].text, measured: styles[$0]?.weight)
+            }
             if model.isWatchingVideo != tracker.isKeepingUp {
                 model.isWatchingVideo = tracker.isKeepingUp
             }
@@ -404,7 +417,7 @@ final class LensSession {
             Self.log.info(
                 """
                 인식(\(trigger, privacy: .public)): 캡처 \(timings.capture, privacy: .public)ms · \
-                OCR \(timings.ocr, privacy: .public)ms · 문단·이모지·색 \(timings.colors, privacy: .public)ms · \
+                OCR \(timings.ocr, privacy: .public)ms · 문단·이모지·색·글자 \(timings.colors, privacy: .public)ms · \
                 배치 \(timings.layout, privacy: .public)ms · 문단 \(recognized.count, privacy: .public)개 \
                 (번역 필요 \(missing, privacy: .public)개) · 변화 후 \(timings.sinceChange, privacy: .public)ms · \
                 마지막 스크롤 후 \(timings.sinceScroll, privacy: .public)ms
@@ -702,6 +715,7 @@ final class LensSession {
                 id: index, content: content, frame: paragraphFrame,
                 fontSize: fontSizes.indices.contains(index)
                     ? fontSizes[index] : LensGeometry.fontSize(of: block, scale: scale),
+                weight: weights.indices.contains(index) ? weights[index] : .regular,
                 colors: colors.indices.contains(index) ? colors[index] : .plain,
                 emojis: emojis.indices.contains(index) ? emojis[index] : [])
         }

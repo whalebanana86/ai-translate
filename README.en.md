@@ -94,7 +94,7 @@ Hover over a button to see what it does.
 
 - **When you scroll**, old translations disappear at once; when you stop, only newly visible paragraphs are translated. Translations are remembered, so scrolling back shows them right away.
 - **Paragraphs waiting for translation** are covered with gray bars until their translation is drawn in place.
-- **Text size** follows the original, and text of the same size gets the same size.
+- **Text size and weight** follow the original, measured from the text on screen: bold headings are drawn bold, small gray text small. Text of the same size gets the same size. The typeface itself (serif and so on) isn’t copied.
 - **Lines already in the target language** (such as "답글 4개" on a Korean page), **author lines** ("Name @handle · 17m"), numbers and buttons are left as they are.
 - **Emoji** aren't translated; the very emoji from the screen is drawn back at the same spot inside the translated sentence.
 
@@ -152,11 +152,11 @@ Changing the engine or model makes an open lens translate again with it. **Clear
 | UI text | String catalogs `Localizable.xcstrings` (app and `TranslateCore`, Korean source + English). The language choice is the same value as macOS per-app language (`AppleLanguages`) |
 | Capture | ScreenCaptureKit `SCScreenshotManager`. The app's own windows are excluded, so the original is captured even under the lens |
 | OCR | Vision `RecognizeTextRequest` (automatic language detection + hints en, ko, ja, zh-Hans, zh-Hant). Lines are grouped into paragraphs; word boxes locate emoji |
-| Logic | `Packages/TranslateCore` (Swift package): coordinates, change detection, paragraph grouping, subtitle spots, emoji, language detection (NaturalLanguage), font sizes, translation memory, engines. Tested with `swift test` |
+| Logic | `Packages/TranslateCore` (Swift package): coordinates, change detection, paragraph grouping, subtitle spots, emoji, language detection (NaturalLanguage), measuring text size and weight, translation memory, engines. Tested with `swift test` |
 | Engines | Claude Code CLI, Codex CLI, local [mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm) + `mlx-community/Hy-MT2-1.8B-4bit` (pinned revision and hashes) |
 | Project | XcodeGen (`project.yml`). `.xcodeproj` is generated |
 
-Pipeline: capture (every 0.5 s, 0.15 s while the screen changes) → change detection by fingerprint → OCR once it settles (for video, every 0.25 s while it changes) → paragraphs, emoji, colors, font sizes → only paragraphs not in the translation memory go to the engine (one request at a time) → draw in place.
+Pipeline: capture (every 0.5 s, 0.15 s while the screen changes) → change detection by fingerprint → OCR once it settles (for video, every 0.25 s while it changes) → emoji, text size and weight, paragraphs, colors → only paragraphs not in the translation memory go to the engine (one request at a time) → draw in place.
 
 ### Commands the app runs
 
@@ -178,6 +178,8 @@ Screen text is only ever passed as `{"target": "Korean", "segments": [...]}` JSO
 | Skipping target-language text | One screen of Korean YouTube comments: 12 translatable paragraphs → 5 sent to the engine |
 | Korean 합니다체 for subtitles | Local model, 50 statements: 25 before the style instruction → 50 with it as a system message |
 | Emoji detection | About 5 ms on a 3200×1520 capture |
+| Text size | Spread within one font (90%) in Chrome: ±2.2% on 2× screens, ±4.3% on 1× (the old line-box formula: ±36–40%). About 11 ms per screen |
+| Text weight | No line read as regular when bold or the other way round at 26 px and up (1663 rendered lines) |
 
 Decisions, reasons and measurement records are in [AGENTS.md](AGENTS.md) (Korean) and `.agent/archive/TASK-*.md`.
 
@@ -202,7 +204,7 @@ Working rules (for agents too) are in [AGENTS.md](AGENTS.md). Each request gets 
 - Developer ID signing and notarization, DMG distribution, auto-update (Sparkle) — hence no download
 - An API-key engine — Anthropic doesn't allow third-party apps to use claude.ai login and plan limits, so this is needed before a public release
 - Intel Macs, launching at login
-- Bold and heading styles aren't carried over; size differences under 1.2× aren't distinguished
+- The typeface (serif and so on) isn't carried over. Weight isn't measured below 26 px (13 pt on a 2× screen, so most body text on 1× screens is drawn regular), and size differences under 1.1× aren't distinguished
 - Single-color gray emoji (💀 and the like) may be missed. Keyboard scrolling is only noticed through screen changes (up to about 0.5 s)
 - Korean 합니다체 for subtitles: questions and suggestions often stay in 해요체 ("~나요?", "~보세요")
 - Windows, Android, iPhone — researched only

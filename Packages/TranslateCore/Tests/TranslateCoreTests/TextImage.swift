@@ -9,6 +9,9 @@ enum TextImage {
         var x: CGFloat
         var top: CGFloat
         var size: CGFloat = 28
+        var font = "Helvetica"
+        /// 링크처럼 글 아래 밑줄
+        var underline = false
     }
 
     static func render(
@@ -26,15 +29,22 @@ enum TextImage {
         context.setFillColor(background)
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         for line in lines {
-            let font = CTFontCreateWithName("Helvetica" as CFString, line.size, nil)
+            let font = CTFontCreateWithName(line.font as CFString, line.size, nil)
             let attributes: [NSAttributedString.Key: Any] = [
                 NSAttributedString.Key(kCTFontAttributeName as String): font,
                 NSAttributedString.Key(kCTForegroundColorAttributeName as String): foreground,
             ]
             let ctLine = CTLineCreateWithAttributedString(NSAttributedString(string: line.text, attributes: attributes))
             // CGContext는 왼쪽 아래 원점이고 기준선 위치에 그리므로 변환한다
-            context.textPosition = CGPoint(x: line.x, y: CGFloat(height) - line.top - CTFontGetAscent(font))
+            let baseline = CGFloat(height) - line.top - CTFontGetAscent(font)
+            context.textPosition = CGPoint(x: line.x, y: baseline)
             CTLineDraw(ctLine, context)
+            if line.underline {
+                let width = CTLineGetTypographicBounds(ctLine, nil, nil, nil)
+                context.setFillColor(foreground)
+                context.fill(
+                    CGRect(x: line.x, y: baseline - CTFontGetDescent(font), width: width, height: line.size * 0.08))
+            }
         }
         return context.makeImage()
     }
