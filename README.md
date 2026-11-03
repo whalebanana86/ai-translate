@@ -182,7 +182,7 @@
 | 굵기 재기 | 26px 이상에서 보통 ↔ 굵게를 바꿔 본 줄 없음 (그린 글 1663줄) |
 | 줄 간격 재기 | Chrome 문단(줄 높이 1.2~1.8, 글꼴 10개) 오차 중간 0.3%, 최대 1.7% |
 
-결정과 근거, 측정 기록은 [AGENTS.md](AGENTS.md)와 `.agent/archive/TASK-*.md` 에 있다.
+결정과 작업 규칙은 [AGENTS.md](AGENTS.md), 기능별 동작과 근거·측정 기록은 [docs/design](docs/design/)과 `.agent/archive/TASK-*.md` 에 있다.
 
 ### 개발
 

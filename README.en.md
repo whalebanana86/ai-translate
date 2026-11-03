@@ -182,7 +182,7 @@ Screen text is only ever passed as `{"target": "Korean", "segments": [...]}` JSO
 | Text weight | No line read as regular when bold or the other way round at 26 px and up (1663 rendered lines) |
 | Line spacing | Chrome paragraphs (line-height 1.2–1.8, 10 fonts): median error 0.3%, max 1.7% |
 
-Decisions, reasons and measurement records are in [AGENTS.md](AGENTS.md) (Korean) and `.agent/archive/TASK-*.md`.
+Decisions and working rules are in [AGENTS.md](AGENTS.md); how each part works, with reasons and measurements, is in [docs/design](docs/design/) and `.agent/archive/TASK-*.md` (all in Korean).
 
 ### Development
 
