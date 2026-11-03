@@ -94,7 +94,7 @@ Hover over a button to see what it does.
 
 - **When you scroll**, old translations disappear at once; when you stop, only newly visible paragraphs are translated. Translations are remembered, so scrolling back shows them right away.
 - **Paragraphs waiting for translation** are covered with gray bars until their translation is drawn in place.
-- **Text size and weight** follow the original, measured from the text on screen: bold headings are drawn bold, small gray text small. Text of the same size gets the same size. The typeface itself (serif and so on) isn’t copied.
+- **Text size, weight and line spacing** follow the original, measured from the text on screen: bold headings are drawn bold, small gray text small. Text of the same size gets the same size. The typeface itself (serif and so on) isn’t copied.
 - **Lines already in the target language** (such as "답글 4개" on a Korean page), **author lines** ("Name @handle · 17m"), numbers and buttons are left as they are.
 - **Emoji** aren't translated; the very emoji from the screen is drawn back at the same spot inside the translated sentence.
 
@@ -180,6 +180,7 @@ Screen text is only ever passed as `{"target": "Korean", "segments": [...]}` JSO
 | Emoji detection | About 5 ms on a 3200×1520 capture |
 | Text size | Spread within one font (90%) in Chrome: ±2.2% on 2× screens, ±4.3% on 1× (the old line-box formula: ±36–40%). About 11 ms per screen |
 | Text weight | No line read as regular when bold or the other way round at 26 px and up (1663 rendered lines) |
+| Line spacing | Chrome paragraphs (line-height 1.2–1.8, 10 fonts): median error 0.3%, max 1.7% |
 
 Decisions, reasons and measurement records are in [AGENTS.md](AGENTS.md) (Korean) and `.agent/archive/TASK-*.md`.
 
@@ -204,7 +205,7 @@ Working rules (for agents too) are in [AGENTS.md](AGENTS.md). Each request gets 
 - Developer ID signing and notarization, DMG distribution, auto-update (Sparkle) — hence no download
 - An API-key engine — Anthropic doesn't allow third-party apps to use claude.ai login and plan limits, so this is needed before a public release
 - Intel Macs, launching at login
-- The typeface (serif and so on) isn't carried over. Weight isn't measured below 26 px (13 pt on a 2× screen, so most body text on 1× screens is drawn regular), and size differences under 1.1× aren't distinguished
+- Letter and word spacing don't follow the original (measured, but within one font they varied from line to line about as much as designed spacing does). The typeface (serif and so on) isn't carried over. Weight isn't measured below 26 px (13 pt on a 2× screen, so most body text on 1× screens is drawn regular), and size differences under 1.1× aren't distinguished
 - Single-color gray emoji (💀 and the like) may be missed. Keyboard scrolling is only noticed through screen changes (up to about 0.5 s)
 - Korean 합니다체 for subtitles: questions and suggestions often stay in 해요체 ("~나요?", "~보세요")
 - Windows, Android, iPhone — researched only

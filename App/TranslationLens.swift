@@ -13,6 +13,8 @@ final class LensModel {
         var fontSize: CGFloat
         /// 원문 글자 굵기 (TASK-060)
         var weight: TextWeight = .regular
+        /// 원문 줄 간격(포인트, 기준선 사이). 한 줄 문단·자막은 nil (TASK-062)
+        var lineHeight: CGFloat?
         /// 원문의 바탕색·글자색. 번역을 이 색으로 그린다
         var colors: BlockColors
         /// 원문 이모지 그림. 번역 글의 이모지 표시(`EmojiFinder.marker`) 자리에 그린다
@@ -212,17 +214,22 @@ struct LensBodyView: View {
     }
 
     private func translation(_ paragraph: LensModel.Paragraph) -> some View {
-        translationText(paragraph)
+        let text = translationText(paragraph)
             .font(.system(size: paragraph.fontSize, weight: Font.Weight(paragraph.weight)))
             .foregroundStyle(Color(paragraph.colors.text))
             // 자막은 가운데 정렬 (자막마다 너비·줄 수가 달라도 번역 자리가 그대로)
             .multilineTextAlignment(paragraph.frame.isCentered ? .center : .leading)
             .minimumScaleFactor(Self.minimumTextScale)
-            .layoutValue(key: ParagraphFrameKey.self, value: paragraph.frame)
-            .layoutValue(key: ParagraphPartKey.self, value: .text(paragraph.id))
-            .layoutValue(
-                key: TextLineCountKey.self,
-                value: (paragraph.translation ?? "").split(separator: "\n", omittingEmptySubsequences: false).count)
+        // 원문 줄 간격으로 그리고(TASK-062), 자리에 다 들어가지 않으면 줄 간격부터 기본으로 돌린 뒤 글자를 줄인다
+        return ViewThatFits(in: .vertical) {
+            text.lineSpacing(Self.extraLineSpacing(for: paragraph))
+            text
+        }
+        .layoutValue(key: ParagraphFrameKey.self, value: paragraph.frame)
+        .layoutValue(key: ParagraphPartKey.self, value: .text(paragraph.id))
+        .layoutValue(
+            key: TextLineCountKey.self,
+            value: (paragraph.translation ?? "").split(separator: "\n", omittingEmptySubsequences: false).count)
     }
 
     @ViewBuilder private var placeholder: some View {
@@ -336,6 +343,28 @@ struct LensParagraphLayout: Layout {
             lineHeight: lineHeight
         ) { width in
             subview.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        }
+    }
+}
+
+extension LensBodyView {
+    /// SwiftUI 기본 줄 높이는 언어와 상관없이 시스템 글꼴의 줄 높이다(측정: 14pt 17, 17pt 20, 24pt 28. 한국어·일본어도 같다)
+    private static let layoutManager = NSLayoutManager()
+
+    /// 원문 줄 간격이 되도록 줄 사이에 더할 높이. 원문이 더 빽빽하면 기본 줄 높이로 둔다(줄 사이를 줄일 수 없다)
+    static func extraLineSpacing(for paragraph: LensModel.Paragraph) -> CGFloat {
+        guard let lineHeight = paragraph.lineHeight else { return 0 }
+        let font = NSFont.systemFont(ofSize: paragraph.fontSize, weight: NSFont.Weight(paragraph.weight))
+        return max(lineHeight - layoutManager.defaultLineHeight(for: font), 0)
+    }
+}
+
+extension NSFont.Weight {
+    init(_ weight: TextWeight) {
+        switch weight {
+        case .regular: self = .regular
+        case .semibold: self = .semibold
+        case .bold: self = .bold
         }
     }
 }

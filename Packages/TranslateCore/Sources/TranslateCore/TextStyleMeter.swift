@@ -12,16 +12,19 @@ public enum TextWeight: Int, Comparable, Sendable {
     public static func < (lhs: TextWeight, rhs: TextWeight) -> Bool { lhs.rawValue < rhs.rawValue }
 }
 
-/// 캡처에서 잰 원문 문단의 글자 크기와 굵기
+/// 캡처에서 잰 원문 문단의 글자 크기·굵기·줄 간격. 길이는 이미지 픽셀(포인트는 화면 배율로 나눈다)
 public struct TextStyle: Equatable, Sendable {
-    /// 글자 크기(이미지 픽셀). 포인트는 화면 배율로 나눈다
+    /// 글자 크기
     public var pixelSize: CGFloat
     /// 글자가 작아 재지 못하면 nil (`TextStyleMeter.minimumWeightPixelSize`)
     public var weight: TextWeight?
+    /// 줄 간격(기준선 사이 거리). 한 줄 문단이면 nil (TASK-062)
+    public var lineHeight: CGFloat?
 
-    public init(pixelSize: CGFloat, weight: TextWeight?) {
+    public init(pixelSize: CGFloat, weight: TextWeight?, lineHeight: CGFloat? = nil) {
         self.pixelSize = pixelSize
         self.weight = weight
+        self.lineHeight = lineHeight
     }
 }
 
@@ -33,11 +36,14 @@ public struct LineStyle: Equatable, Sendable {
     public var strokeRatio: CGFloat?
     /// 줄 하나로 본 굵기
     public var weight: TextWeight?
+    /// 기준선(라틴) 또는 잉크 아래 끝(한글·한자)의 이미지 y. 문단 줄 간격을 재고, 문단을 묶는 데 쓴다
+    public var baseline: CGFloat?
 
-    public init(pixelSize: CGFloat, strokeRatio: CGFloat?, weight: TextWeight?) {
+    public init(pixelSize: CGFloat, strokeRatio: CGFloat?, weight: TextWeight?, baseline: CGFloat? = nil) {
         self.pixelSize = pixelSize
         self.strokeRatio = strokeRatio
         self.weight = weight
+        self.baseline = baseline
     }
 }
 
@@ -79,7 +85,7 @@ public enum TextStyleMeter {
     /// 찾기를 멈춘다. 멈추지 않으면 링크 밑줄까지 잉크로 세어 11% 크게 쟀다(테스트)
     static let solidRowFill: Float = 0.8
 
-    /// 줄마다 잰 크기·굵기. 잴 수 없으면 nil. 바탕색은 줄 상자에서 가장 많은 색
+    /// 줄마다 잰 크기·굵기·기준선. 잴 수 없으면 nil. 바탕색은 줄 상자에서 가장 많은 색
     public static func measure(_ lines: [RecognizedLine], in image: CGImage) -> [LineStyle?] {
         guard let pixels = Pixels(image) else { return lines.map { _ in nil } }
         return lines.map { line in
@@ -99,12 +105,22 @@ public enum TextStyleMeter {
                 lines.firstIndex(of: line).flatMap { lineStyles.indices.contains($0) ? lineStyles[$0] : nil }
             }
             guard !measured.isEmpty else { return nil }
+            let size = median(measured.map(\.pixelSize))
             let strokes = measured.compactMap(\.strokeRatio)
+            // 문단 줄은 위에서부터다. 이웃 줄 기준선 사이 거리 중 그럴듯한 것(글자 크기의 0.9~3배)
+            let baselines = measured.compactMap(\.baseline)
+            let pitches = zip(baselines, baselines.dropFirst()).map { $1 - $0 }.filter {
+                plausibleLineHeight.contains($0 / size)
+            }
             return TextStyle(
-                pixelSize: median(measured.map(\.pixelSize)),
-                weight: strokes.isEmpty ? nil : weight(strokeRatio: median(strokes), script: script(of: block.text)))
+                pixelSize: size,
+                weight: strokes.isEmpty ? nil : weight(strokeRatio: median(strokes), script: script(of: block.text)),
+                lineHeight: pitches.isEmpty ? nil : median(pitches))
         }
     }
+
+    /// 줄 간격 ÷ 글자 크기가 이 범위 밖이면 이웃 줄이 아닌 것으로 본다 (문단 안 빈 줄 등)
+    static let plausibleLineHeight: ClosedRange<CGFloat> = 0.9...3
 
     // MARK: 굵기
 
@@ -178,15 +194,18 @@ public enum TextStyleMeter {
         let text = EmojiFinder.removingMarkers(line.text)
         let reference = reference(of: text)
         let size: CGFloat
+        let baselineY: CGFloat
         if script(of: text) == .latin, let baseline = baselineRow(region, rows: rows) {
             // 라틴 글은 기준선 위만 비교한다: OCR이 아래로 내려가는 글자를 빼고 읽으면("anytime" → "antime") 기준 글이 낮아져
             // 26% 크게 쟀다 (Chrome 측정에서 OCR이 틀린 줄 22%)
-            let partial = region.rowSum[baseline] / max(region.rowSum[baseline - 1], 1)
-            let above = (rows.lowerBound..<baseline).reduce(Float(0)) { $0 + region.rowMax[$1] } + min(partial, 1)
+            let partial = min(region.rowSum[baseline] / max(region.rowSum[baseline - 1], 1), 1)
+            let above = (rows.lowerBound..<baseline).reduce(Float(0)) { $0 + region.rowMax[$1] } + partial
             size = (CGFloat(above) - renderingSpread) / reference.ascent * referenceSize
+            baselineY = CGFloat(top + baseline) + CGFloat(partial)
         } else {
             let height = CGFloat(rows.reduce(Float(0)) { $0 + region.rowMax[$1] }) - renderingSpread
             size = height / reference.height * referenceSize
+            baselineY = CGFloat(top + rows.upperBound) + CGFloat(region.rowMax[rows.upperBound])
         }
         guard size > 0, reference.height > 0, reference.ascent > 0, plausibleSizeRatio.contains(size / box.height)
         else { return nil }
@@ -196,7 +215,7 @@ public enum TextStyleMeter {
         let strokeRatio = size >= minimumWeightPixelSize ? CGFloat(stroke) / size : nil
         return LineStyle(
             pixelSize: size, strokeRatio: strokeRatio,
-            weight: strokeRatio.map { weight(strokeRatio: $0, script: script(of: text)) })
+            weight: strokeRatio.map { weight(strokeRatio: $0, script: script(of: text)) }, baseline: baselineY)
     }
 
     /// 기준선 줄: 잉크 아래쪽 절반에서 덮임 합이 가장 크게 줄어드는 줄(x 높이 띠의 바닥, 아래로 내려가는 글자는 듬성하다)
