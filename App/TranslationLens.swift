@@ -11,6 +11,8 @@ final class LensModel {
         var content: BlockContent
         var frame: ParagraphFrame
         var fontSize: CGFloat
+        /// 원문 글자 굵기 (TASK-060)
+        var weight: TextWeight = .regular
         /// 원문의 바탕색·글자색. 번역을 이 색으로 그린다
         var colors: BlockColors
         /// 원문 이모지 그림. 번역 글의 이모지 표시(`EmojiFinder.marker`) 자리에 그린다
@@ -211,7 +213,7 @@ struct LensBodyView: View {
 
     private func translation(_ paragraph: LensModel.Paragraph) -> some View {
         translationText(paragraph)
-            .font(.system(size: paragraph.fontSize))
+            .font(.system(size: paragraph.fontSize, weight: Font.Weight(paragraph.weight)))
             .foregroundStyle(Color(paragraph.colors.text))
             // 자막은 가운데 정렬 (자막마다 너비·줄 수가 달라도 번역 자리가 그대로)
             .multilineTextAlignment(paragraph.frame.isCentered ? .center : .leading)
@@ -334,6 +336,16 @@ struct LensParagraphLayout: Layout {
             lineHeight: lineHeight
         ) { width in
             subview.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        }
+    }
+}
+
+extension Font.Weight {
+    init(_ weight: TextWeight) {
+        switch weight {
+        case .regular: self = .regular
+        case .semibold: self = .semibold
+        case .bold: self = .bold
         }
     }
 }

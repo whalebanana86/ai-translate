@@ -32,29 +32,50 @@ public enum TextBlockGrouper {
     static let noiseConfidence: Float = 0.6
     static let noiseMaxLetters = 4
 
-    public static func group(_ lines: [RecognizedLine]) -> [TextBlock] {
-        let sorted = lines.filter { !isNoise($0) }.sorted {
-            ($0.boundingBox.minY, $0.boundingBox.minX) < ($1.boundingBox.minY, $1.boundingBox.minX)
+    /// 잰 글자 크기가 이 배수보다 다르면 잇지 않는다 (같은 문단 줄의 측정 흔들림은 대개 ±4% 안)
+    static let maxStyleSizeRatio: CGFloat = 1.25
+
+    /// - Parameter styles: `lines`와 같은 순서로 캡처에서 잰 줄 크기·굵기(`TextStyleMeter`). 있으면 크기나 굵기(보통 ↔ 굵게)가 다른
+    ///   줄을 잇지 않는다
+    public static func group(_ lines: [RecognizedLine], styles: [LineStyle?] = []) -> [TextBlock] {
+        let styled = lines.enumerated().map { ($1, styles.indices.contains($0) ? styles[$0] : nil) }
+        let sorted = styled.filter { !isNoise($0.0) }.sorted {
+            ($0.0.boundingBox.minY, $0.0.boundingBox.minX) < ($1.0.boundingBox.minY, $1.0.boundingBox.minX)
         }
-        var blocks: [[RecognizedLine]] = []
-        for line in sorted {
+        let sortedLines = sorted.map(\.0)
+        var blocks: [[(RecognizedLine, LineStyle?)]] = []
+        for (line, style) in sorted {
             // 다단 구성에서는 단마다 줄이 번갈아 나오므로 직전 문단만이 아니라 모든 문단의 마지막 줄과 비교한다
             let index = blocks.lastIndex { block in
-                (block.last.map { continues($0, with: line) } ?? false) && !sitsInRow(line, among: sorted, under: block)
+                guard let last = block.last else { return false }
+                return continues(last.0, with: line) && !differInStyle(last.1, style)
+                    && !sitsInRow(line, among: sortedLines, under: block.map(\.0))
             }
             if let index {
-                blocks[index].append(line)
+                blocks[index].append((line, style))
             } else {
-                blocks.append([line])
+                blocks.append([(line, style)])
             }
         }
-        return blocks.map { lines in
-            TextBlock(
+        return blocks.map { block in
+            let lines = block.map(\.0)
+            return TextBlock(
                 lines: lines,
                 text: join(lines),
                 boundingBox: lines.map(\.boundingBox).reduce(CGRect.null) { $0.union($1) }
             )
         }
+    }
+
+    /// 글자 크기나 굵기가 다른 줄. 제목 바로 아래 본문이 한 문단이 되어 제목이 본문 굵기로 그려졌다 (TASK-060)
+    static func differInStyle(_ first: LineStyle?, _ second: LineStyle?) -> Bool {
+        guard let first, let second, first.pixelSize > 0, second.pixelSize > 0 else { return false }
+        let ratio = max(first.pixelSize, second.pixelSize) / min(first.pixelSize, second.pixelSize)
+        if ratio > maxStyleSizeRatio {
+            return true
+        }
+        guard let firstWeight = first.weight, let secondWeight = second.weight else { return false }
+        return (firstWeight == .regular) != (secondWeight == .regular)
     }
 
     static func isNoise(_ line: RecognizedLine) -> Bool {
