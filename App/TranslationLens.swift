@@ -44,6 +44,9 @@ final class LensModel {
     var hasRecognized = false
     /// 보여주던 번역이 지금 화면과 맞지 않음(스크롤·이동 중). 다시 인식할 때까지 번역을 그리지 않는다
     var isOutdated = false
+    /// 렌즈 아래 일부만 바뀌어(메뉴가 열리고 닫힘) 번역이 맞지 않게 된 문단(`Paragraph.id`). 다시 인식할 때까지 이 문단만
+    /// 그리지 않는다 (TASK-072)
+    var hiddenParagraphIDs: Set<Int> = []
     /// 영상(계속 바뀌는 화면)을 보는 중. 자막 사이 빈 구간에 "텍스트를 찾지 못했습니다" 안내를 띄우지 않는다
     var isWatchingVideo = false
     /// 렌즈 옆 패널에 보여줄 번역 기록
@@ -135,7 +138,7 @@ struct LensBodyView: View {
                 // 이중 자막은 원문이 보이므로 번역이 나오기 전에는 아무것도 그리지 않는다
                 let covered = model.paragraphs.filter {
                     $0.content.hidesOriginal(canTranslate: canTranslate)
-                        && ($0.translation != nil || !$0.frame.showsSource)
+                        && ($0.translation != nil || !$0.frame.showsSource) && !model.hiddenParagraphIDs.contains($0.id)
                 }
                 LensParagraphLayout(coverInset: Self.backingInset) {
                     // 가림 상자를 먼저(아래), 번역 글을 나중에(위) 그린다

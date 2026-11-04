@@ -27,6 +27,44 @@ public struct ImageFingerprint: Equatable, Sendable {
         let total = zip(pixels, other.pixels).reduce(0) { $0 + abs(Int($1.0) - Int($1.1)) }
         return Double(total) / Double(pixels.count) / 255
     }
+
+    /// `other`와 비교해 바뀐 곳
+    public func changedArea(since other: ImageFingerprint) -> ChangedArea {
+        ChangedArea(changed: zip(pixels, other.pixels).map { abs(Int($0) - Int($1)) >= ChangedArea.pixelThreshold })
+    }
+}
+
+/// 두 화면 지문에서 바뀐 곳. 지문 픽셀(64×64, 왼쪽 위부터 줄 순서)마다 바뀌었는지 기록한다.
+///
+/// 렌즈 일부만 바뀐 화면(드롭다운 메뉴가 열리고 닫힘)에서 바뀐 곳에 걸친 문단의 번역만 숨기는 데 쓴다 (TASK-072)
+public struct ChangedArea: Equatable, Sendable {
+    /// 지문 픽셀 밝기 차이(0~255)가 이 값 이상이면 바뀐 곳으로 본다. 같은 화면은 지문이 똑같다. 지문 픽셀 하나는 렌즈의
+    /// 1/64(1300pt 폭이면 약 20pt)라 글자가 있던 칸이 가려지거나 움직이면 차이가 훨씬 크고, 흰 메뉴가 연한 바탕(#F7F6F3)을
+    /// 덮은 칸은 약 9다
+    static let pixelThreshold = 5
+    let changed: [Bool]
+
+    /// 바뀐 곳이 없는지
+    public var isEmpty: Bool {
+        !changed.contains(true)
+    }
+
+    /// 이미지 픽셀 영역(왼쪽 위 원점)이 바뀐 곳에 걸치는지
+    public func intersects(_ rect: CGRect, in imageSize: CGSize) -> Bool {
+        let side = ImageFingerprint.side
+        guard imageSize.width > 0, imageSize.height > 0, changed.count == side * side else { return true }
+        let columns = Self.cells(from: rect.minX, to: rect.maxX, length: imageSize.width)
+        let rows = Self.cells(from: rect.minY, to: rect.maxY, length: imageSize.height)
+        return rows.contains { row in columns.contains { changed[row * side + $0] } }
+    }
+
+    /// 이미지 픽셀 구간이 걸치는 지문 픽셀 범위
+    private static func cells(from start: CGFloat, to end: CGFloat, length: CGFloat) -> Range<Int> {
+        let side = CGFloat(ImageFingerprint.side)
+        let first = max(0, Int((start / length * side).rounded(.down)))
+        let last = min(ImageFingerprint.side, Int((end / length * side).rounded(.up)))
+        return first..<max(first, last)
+    }
 }
 
 /// 렌즈 아래 화면이 바뀐 뒤 멈췄을 때만 OCR하도록 거르고, 보여주던 번역이 화면과 맞지 않게 됐는지 알려준다.
@@ -38,7 +76,7 @@ public struct ChangeTracker: Sendable {
     public enum Change: Equatable, Sendable {
         /// 마지막으로 처리한 화면과 거의 같다. 보여주던 번역이 맞다
         case unchanged
-        /// 처리한 화면에서 크게 벗어났다(스크롤 등). 보여주던 번역이 더 이상 맞지 않는다
+        /// 처리한 화면에서 크게 벗어났다(스크롤·메뉴 열림 등). 바뀐 곳(`changedArea`)의 번역은 더 이상 맞지 않는다
         case movedAway
         /// 바뀐 뒤 멈췄다. 이 화면을 처리한다
         case settled
@@ -58,6 +96,9 @@ public struct ChangeTracker: Sendable {
     /// 계속 바뀌는 화면을 다시 처리하는 간격. 자막처럼 글이 바뀌면 이 간격 안에 다시 인식한다.
     /// 0.4초에서는 주기가 약 0.5초라 자막이 바뀐 뒤 알아채기까지 원문이 보였다 (TASK-031)
     public static let keepsChangingInterval: Duration = .milliseconds(250)
+
+    /// 마지막 `movedAway`에서 처리한 화면과 달라진 곳. 처리한 화면이 없으면(처음·`reset` 뒤) nil이며, 이때는 보여주던 번역도 없다
+    public private(set) var changedArea: ChangedArea?
 
     private var previous: ImageFingerprint?
     private var processed: ImageFingerprint?
@@ -83,6 +124,7 @@ public struct ChangeTracker: Sendable {
         lastUserAction: ContinuousClock.Instant? = nil
     ) -> Change {
         defer { previous = frame }
+        changedArea = nil
         let isStill = previous.map { frame.difference(to: $0) < Self.threshold } ?? false
         changingSince = isStill ? nil : changingSince ?? now
         if let lastKeptUp, let lastUserAction, lastUserAction > lastKeptUp {
@@ -105,8 +147,10 @@ public struct ChangeTracker: Sendable {
         if isKeepingUp {
             return .unchanged
         }
-        let movedAway = processed.map { frame.difference(to: $0) >= Self.movedAwayThreshold } ?? true
-        return movedAway ? .movedAway : .unchanged
+        guard let processed else { return .movedAway }
+        guard frame.difference(to: processed) >= Self.movedAwayThreshold else { return .unchanged }
+        changedArea = frame.changedArea(since: processed)
+        return .movedAway
     }
 
     private func isDueToKeepUp(at now: ContinuousClock.Instant, lastUserAction: ContinuousClock.Instant?) -> Bool {
@@ -122,6 +166,7 @@ public struct ChangeTracker: Sendable {
     public mutating func reset() {
         previous = nil
         processed = nil
+        changedArea = nil
         changingSince = nil
         lastKeptUp = nil
     }

@@ -9,15 +9,21 @@ public enum CaptureSchedule {
     public static let activeInterval: Duration = .milliseconds(150)
     /// 스크롤 이벤트가 이만큼 없으면 스크롤이 멈춘 것으로 보고 바로 찍는다
     public static let scrollQuiet: Duration = .milliseconds(150)
+    /// 포인터가 렌즈 위에서 움직이거나 누른 뒤 이 시간 동안은 화면이 그대로여도 바뀌는 중일 때 간격으로 찍는다.
+    /// 메뉴는 포인터를 올리거나 누르면 열리고 닫히는데, 0.5초 간격이면 그만큼 열린 메뉴 위에 지난 번역이, 닫힌 메뉴 자리에
+    /// 메뉴 번역이 남았다 (TASK-072)
+    public static let pointerActivePeriod: Duration = .seconds(1)
     /// 너무 촘촘히 찍지 않는 하한
     static let minimumDelay: Duration = .milliseconds(20)
 
     public static func delay(
-        isChanging: Bool, lastScroll: ContinuousClock.Instant?, now: ContinuousClock.Instant
+        isChanging: Bool, lastScroll: ContinuousClock.Instant?, lastPointerActivity: ContinuousClock.Instant? = nil,
+        now: ContinuousClock.Instant
     ) -> Duration {
         if let lastScroll, now - lastScroll < scrollQuiet {
             return max(minimumDelay, lastScroll + scrollQuiet - now)
         }
-        return isChanging ? activeInterval : idleInterval
+        let isPointerActive = lastPointerActivity.map { now - $0 < pointerActivePeriod } ?? false
+        return isChanging || isPointerActive ? activeInterval : idleInterval
     }
 }

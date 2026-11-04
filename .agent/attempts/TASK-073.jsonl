@@ -1,0 +1,2 @@
+{"ts": "2026-11-04T00:43:23Z", "started_epoch": 1793752998, "loop": 1, "attempt": 1, "result": "fail", "step": "lint", "exit_code": 1, "duration_s": 5, "signature": "231cc76ab52974ce", "summary": "Packages/TranslateCore/Tests/TranslateCoreTests/OccludedParagraphsTests.swift:29:1: error: [LineLength] line is too long\nPackages/TranslateCore/Tests/TranslateCoreTests/OccludedParagraphsTests.swift:50:1: error: [LineLength] line is too long"}
+{"ts": "2026-11-04T00:43:46Z", "started_epoch": 1793753007, "loop": 1, "attempt": 2, "result": "pass", "duration_s": 19}
