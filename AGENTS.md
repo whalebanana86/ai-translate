@@ -52,6 +52,7 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
 - 로컬 모델은 자동으로 받지 않는다(사용자가 "모델 받기"). 받은 파일은 고정 해시와 맞을 때만 쓴다
 - 화면 글은 문자열 카탈로그(`Localizable.xcstrings`)에 둔다. SwiftUI 밖에서 `String`으로 넘기는 글은 `String(localized:)`
   (TranslateCore는 `bundle: .module`). 새 화면 글은 빌드 뒤 `./scripts/sync-strings.sh`를 돌리고 영어를 채운다
+  (빠뜨리면 검증 루프 strings 단계가 실패한다)
 - 개발 빌드는 이 맥 전용 자체 서명 인증서로 서명한다(`scripts/run-app.sh`). 임시 서명은 빌드할 때마다 화면 기록 권한이 풀린다
 
 ### 영역별 설계 문서
@@ -211,7 +212,8 @@ swift format format -i -r --configuration .swift-format App Packages/TranslateCo
 
 `auto-fix-loop.sh` 동작 (제한값은 스크립트 상단 상수이며 환경 변수로 바꿀 수 없다):
 
-- 검증 단계: 문서 크기(`AGENTS.md` 24KB 이하, 5.6) → 타입 검사(`swift build`, 경고=에러) → Lint(`swift format lint --strict`) → 빌드(XcodeGen + `xcodebuild`) → 테스트(`swift test`)
+- 검증 단계: 문서 크기(`AGENTS.md` 24KB 이하, 5.6) → 타입 검사(`swift build`, 경고=에러) → Lint(`swift format lint --strict`) → 빌드(XcodeGen + `xcodebuild`) → 화면 글 카탈로그(`sync-strings.sh --check`) → 테스트(`swift test`)
+- 4장의 외부 프로세스·파일 쓰기·Live 테스트 조건·시스템 프롬프트 규칙은 `ProjectRulesTests`가 소스에서 검사한다. 예외를 더하면 그 허용 목록도 고친다
 - 최대 재시도 3회 (최초 실행 포함 총 4회), 루프의 첫 실행부터 15분 제한
 - 직전 실패와 같은 오류가 다시 나면 즉시 중단한다. 줄 번호만 바뀐 같은 오류도 같은 오류로 본다
 - 실행할 때마다 결과(pass/fail/stopped)가 `.agent/attempts/TASK-ID.jsonl`에 자동 기록된다

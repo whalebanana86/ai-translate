@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 자동 검증 루프의 한 회차를 실행한다: 문서 크기 → 타입 검사 → Lint → 빌드 → 테스트.
+# 자동 검증 루프의 한 회차를 실행한다: 문서 크기 → 타입 검사 → Lint → 빌드 → 화면 글 카탈로그 → 테스트.
 # 재시도 제한과 실행 기록은 이 스크립트가 강제한다 (AGENTS.md 5.3).
 #
 # 사용법
@@ -18,7 +18,7 @@ set -uo pipefail
 # 제한값. 환경 변수로 덮어쓰지 않는다
 readonly MAX_RETRIES=3 # 최초 실행 포함 총 MAX_RETRIES+1회
 readonly TIME_LIMIT_SEC=$((15 * 60))
-readonly STEPS="docs typecheck lint build test"
+readonly STEPS="docs typecheck lint build strings test"
 # AGENTS.md는 모든 작업의 컨텍스트에 실리므로 크기를 제한한다 (AGENTS.md 5.6, TASK-067·068)
 readonly MAX_AGENTS_BYTES=$((24 * 1024))
 
@@ -51,6 +51,10 @@ step_command() {
         echo "xcodegen generate --quiet &&" \
             "xcodebuild -project AITranslate.xcodeproj -scheme AITranslate -configuration Debug" \
             "-derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO -quiet build"
+        ;;
+    strings)
+        # 빌드가 뽑은 화면 글이 카탈로그에 다 있는지 (TASK-076). 빌드 결과를 쓰므로 build 다음에 둔다
+        echo "./scripts/sync-strings.sh --check"
         ;;
     test)
         echo "swift test --package-path Packages/TranslateCore"
