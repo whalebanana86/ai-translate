@@ -26,6 +26,23 @@ private final class FakeGenerator: TextGenerating {
     }
 }
 
+/// 끝나지 않는 생성기. 취소됐는지 기록한다
+private final class HangingGenerator: TextGenerating {
+    let wasCancelled = Mutex(false)
+
+    func generate(prompt: String, maxTokens: Int, onPartial: @escaping @Sendable (String) -> Void) async throws
+        -> String
+    {
+        do {
+            try await Task.sleep(for: .seconds(60))
+        } catch {
+            wasCancelled.withLock { $0 = true }
+            throw error
+        }
+        return ""
+    }
+}
+
 struct LocalTranslationProviderTests {
     @Test func translatesEachSegmentWithModelPrompt() async throws {
         let generator = FakeGenerator(outputs: ["변경 사항 저장", "Mac 준비  \nSteam을 설치합니다.\n"])
@@ -98,5 +115,22 @@ struct LocalTranslationProviderTests {
         #expect(HyMTPrompt.maxTokens(for: "OK") == 64)
         #expect(HyMTPrompt.maxTokens(for: String(repeating: "a", count: 100)) == 300)
         #expect(HyMTPrompt.maxTokens(for: String(repeating: "a", count: 5000)) == 2048)
+    }
+
+    @Test func timesOutAndCancelsGenerationThatDoesNotFinish() async {
+        let generator = HangingGenerator()
+        let provider = LocalTranslationProvider(generator: generator) { _ in .milliseconds(200) }
+        let started = ContinuousClock.now
+
+        await #expect(throws: TranslationEngineError.timedOut) {
+            try await provider.translate(TranslationRequest(target: "Korean", segments: ["x"]))
+        }
+        #expect(generator.wasCancelled.withLock { $0 })
+        #expect(ContinuousClock.now - started < .seconds(5))
+    }
+
+    @Test func limitsTimeByGeneratedLength() {
+        #expect(HyMTPrompt.timeLimit(for: "OK") == .milliseconds(16_400))
+        #expect(HyMTPrompt.timeLimit(for: String(repeating: "a", count: 5000)) == .milliseconds(214_800))
     }
 }

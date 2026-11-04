@@ -17,9 +17,16 @@ extension TextGenerating {
 /// JSON으로 묶어 보내지 않는다.
 public struct LocalTranslationProvider: TranslationProvider {
     public let generator: any TextGenerating
+    /// 문단 하나를 번역하는 시간 제한 (기본 `HyMTPrompt.timeLimit(for:)`)
+    let timeLimit: @Sendable (String) -> Duration
 
     public init(generator: any TextGenerating) {
+        self.init(generator: generator) { HyMTPrompt.timeLimit(for: $0) }
+    }
+
+    init(generator: any TextGenerating, timeLimit: @escaping @Sendable (String) -> Duration) {
         self.generator = generator
+        self.timeLimit = timeLimit
     }
 
     /// 한 문단씩 보내 렌즈가 번역되는 대로 보여주게 한다
@@ -35,15 +42,34 @@ public struct LocalTranslationProvider: TranslationProvider {
         var segments: [String] = []
         for (index, segment) in request.segments.enumerated() {
             try Task.checkCancellation()
-            let output = try await generator.generate(
-                prompt: HyMTPrompt.prompt(for: segment, target: request.target, style: request.style),
-                maxTokens: HyMTPrompt.maxTokens(for: segment)
-            ) { partial in
-                onPartial(index, HyMTPrompt.clean(partial))
+            let output = try await Self.generate(within: timeLimit(segment)) { [generator] in
+                try await generator.generate(
+                    prompt: HyMTPrompt.prompt(for: segment, target: request.target, style: request.style),
+                    maxTokens: HyMTPrompt.maxTokens(for: segment)
+                ) { partial in
+                    onPartial(index, HyMTPrompt.clean(partial))
+                }
             }
             segments.append(HyMTPrompt.clean(output))
         }
         return TranslationResult(segments: segments)
+    }
+
+    /// `limit` 안에 생성이 끝나지 않으면 생성을 취소하고 `timedOut`을 던진다. 요청은 동시에 하나라 멈춘 생성이 뒤 문단을 막지 않게 한다
+    /// (AGENTS.md 4장: 모든 엔진 호출에 시간 제한). 생성기는 취소되면 멈춰야 한다(MLX 생성은 토큰마다 취소를 확인한다)
+    static func generate(
+        within limit: Duration, _ operation: @escaping @Sendable () async throws -> String
+    ) async throws -> String {
+        try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask(operation: operation)
+            group.addTask {
+                try await Task.sleep(for: limit)
+                throw TranslationEngineError.timedOut
+            }
+            defer { group.cancelAll() }
+            guard let output = try await group.next() else { throw CancellationError() }
+            return output
+        }
     }
 }
 
@@ -77,6 +103,12 @@ public enum HyMTPrompt {
     /// 번역이 원문보다 아주 길어지는 일은 없으므로 넉넉하게 잡고, 멈추지 않는 생성을 막는다
     public static func maxTokens(for text: String) -> Int {
         min(2048, max(64, text.count * 3))
+    }
+
+    /// 문단 하나의 시간 제한. 정상 생성은 끊지 않도록 생성 길이 상한을 초당 10토큰으로 다 만드는 시간에 10초를 더한다
+    /// (M5 측정 초당 101~112토큰. "OK" 16.4초, 긴 문단 2048토큰 214.8초). 멈춘 생성만 끊는다
+    public static func timeLimit(for text: String) -> Duration {
+        .seconds(10) + .milliseconds(100) * maxTokens(for: text)
     }
 
     /// 줄바꿈 앞에 마크다운식 공백 두 칸을 붙이는 버릇을 지운다

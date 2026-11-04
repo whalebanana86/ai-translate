@@ -36,6 +36,10 @@
   - 빌드에 Metal 툴체인이 필요하다 (Xcode 26은 따로 받음: `xcodebuild -downloadComponent MetalToolchain`)
   - Intel 제외: `TranslationEngine.isSupported(onAppleSilicon:)`, 앱은 `arch(arm64)`로 판단(`EngineSettings.isAppleSilicon`). Intel·Rosetta에서는 설정의 로컬 카드를 끄고, 저장된 선택이 로컬이면 다시 고르게 한다
   - 로컬 엔진은 생성되는 대로 보여준다(`onPartial`, 화면 갱신 0.05초 간격). 최종 번역이 오면 그것으로 바꾼다
+  - 시간 제한(`HyMTPrompt.timeLimit`, TASK-075: AGENTS.md "모든 엔진 호출에 시간 제한"인데 로컬 엔진에는 없었다): 문단마다
+    10초 + 토큰 상한 × 0.1초(초당 10토큰 가정, M5 측정 초당 101~112토큰). "OK" 16.4초, 긴 문단(2048토큰) 214.8초. 넘으면 생성을
+    취소하고 `timedOut`. 요청은 동시에 하나라 멈춘 생성이 뒤 문단을 막는다. 정상 생성은 끊지 않도록 넉넉하게 잡았다.
+    모델 불러오기·예열에는 두지 않았다
   - 미리 준비: 앱 시작·엔진 변경·모델 받기 완료 때 `EngineSettings.prepare()`로 엔진을 만들어 둔다(같은 엔진 준비는 하나만).
     로컬 모델은 불러온 뒤 짧은 예열 생성으로 GPU 커널을 준비한다(첫 생성 4.3초 측정). 로컬 엔진을 고른 동안은 모델(약 1.2GB)을
     메모리에 둔다. 렌즈는 엔진 준비를 기다리지 않고 OCR부터 하고, 준비가 끝나면 번역을 시작한다
