@@ -150,6 +150,8 @@ final class LensSession {
     private var engineGeneration = 0
     private let recognizer = TextRecognizer()
     private var blocks: [TextBlock] = []
+    /// 메뉴 등에 일부가 가려져 조각만 읽힌 원래 문단. 조각은 `blocks`에서 빼고, 다음 인식에서도 조각을 알아보게 넘긴다 (TASK-073)
+    private var occludedSources: [TextBlock] = []
     /// `blocks`와 같은 순서의 원문 색
     private var colors: [BlockColors] = []
     /// 문단마다 이모지 그림 (`TextBlock.emojis` 순서)
@@ -375,15 +377,20 @@ final class LensSession {
             let settled = ContinuousClock.now
             let lines = try await recognizer.recognize(image)
             let ocred = ContinuousClock.now
+            // 메뉴에 가려 잘린 문단 조각은 번역하지 않고 원문 그대로 둔다(TASK-073). 영상 자막은 글이 바뀌므로 보지 않는다
+            let reference = tracker.isKeepingUp ? nil : blocks + occludedSources
             // 이모지 찾기·색 뽑기·글자 크기와 굵기 재기는 화면 픽셀을 다시 읽으므로 메인 스레드 밖에서 한다. 이모지는 번역 글 안에
             // 그리려고 오려 둔다 (메모리에만 둔다)
-            let (recognized, sampled, emojiImages, styles) = await Task.detached {
+            let (recognized, occluded, sampled, emojiImages, styles) = await Task.detached {
                 let lines = EmojiFinder.apply(to: lines, in: image)
                 // 줄마다 잰 크기·굵기가 다르면 문단을 나눈다 (제목과 바로 아래 본문)
                 let lineStyles = TextStyleMeter.measure(lines, in: image)
-                let blocks = TextBlockGrouper.group(lines, styles: lineStyles)
+                let grouped = TextBlockGrouper.group(lines, styles: lineStyles)
+                let (blocks, occluded) =
+                    reference.map { OccludedParagraphs.removingFragments(from: grouped, reference: $0) }
+                    ?? (grouped, [])
                 return (
-                    blocks, blocks.map { BlockColors.sample(image, in: $0.boundingBox) ?? .plain },
+                    blocks, occluded, blocks.map { BlockColors.sample(image, in: $0.boundingBox) ?? .plain },
                     blocks.map { $0.emojis.compactMap { image.cropping(to: $0.integral) } },
                     TextStyleMeter.styles(of: blocks, lines: lines, lineStyles: lineStyles)
                 )
@@ -393,6 +400,7 @@ final class LensSession {
             // 인식하는 사이에 옮겼거나 일시정지했다면 버리고 다음 화면을 기다린다
             guard interaction == nil, !model.isPaused else { return }
             blocks = recognized
+            occludedSources = occluded
             colors = sampled
             emojis = emojiImages
             if tracker.isKeepingUp {
@@ -439,7 +447,8 @@ final class LensSession {
                 인식(\(trigger, privacy: .public)): 캡처 \(timings.capture, privacy: .public)ms · \
                 OCR \(timings.ocr, privacy: .public)ms · 문단·이모지·색·글자 \(timings.colors, privacy: .public)ms · \
                 배치 \(timings.layout, privacy: .public)ms · 문단 \(recognized.count, privacy: .public)개 \
-                (번역 필요 \(missing, privacy: .public)개) · 변화 후 \(timings.sinceChange, privacy: .public)ms · \
+                (번역 필요 \(missing, privacy: .public)개, 가려짐 \(occluded.count, privacy: .public)개) · \
+                변화 후 \(timings.sinceChange, privacy: .public)ms · \
                 마지막 스크롤 후 \(timings.sinceScroll, privacy: .public)ms
                 """)
             // 인식하는 사이에 또 스크롤했다면 숨긴 채로 다음 화면을 기다린다
@@ -806,6 +815,8 @@ final class LensSession {
         case .ended:
             interaction = nil
             tracker.reset()
+            // 렌즈 아래가 다른 곳이 됐으므로 가려진 문단도 잊는다
+            occludedSources = []
             model.status = .recognizing
         }
     }
@@ -866,6 +877,7 @@ final class LensSession {
             model.status = .watching
         } else {
             tracker.reset()
+            occludedSources = []
             changeStartedAt = .now
             model.status = .recognizing
         }

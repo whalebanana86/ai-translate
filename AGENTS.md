@@ -61,7 +61,7 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
 | 문서 | 영역 | 주요 코드 |
 |---|---|---|
 | `docs/design/capture.md` | 영역 선택, 캡처, 변화 감시·인식 주기, 계속 바뀌는 화면, 스크롤 뒤 번역 숨김, 단계별 시간 로그 | `SelectionOverlay`, `ScreenCapturer`, `ChangeTracker`, `CaptureSchedule`, `WindowStack` |
-| `docs/design/recognition.md` | OCR, 잡음, 문단 묶기, 작성자 줄, 이모지, 줄바꿈, OCR 오인식("AI" → "Al") | `TextRecognizer`, `TextBlockGrouper`, `EmojiFinder`, `AIMisreading` |
+| `docs/design/recognition.md` | OCR, 잡음, 문단 묶기, 작성자 줄, 메뉴에 가려진 문단, 이모지, 줄바꿈, OCR 오인식("AI" → "Al") | `TextRecognizer`, `TextBlockGrouper`, `OccludedParagraphs`, `EmojiFinder`, `AIMisreading` |
 | `docs/design/lens.md` | 렌즈 창, 번역 위치, 글자 크기·굵기·줄 간격, 색, 가림, 도구 막대, 일시정지, 번역 기록 패널 | `TranslationLens`, `LensGeometry`, `TextStyleMeter`, `FontSizer`, `BlockColors`, `TranslationTranscript` |
 | `docs/design/video.md` | 영상 자막: 이어 보여주기, 위치 고정, 이중 자막, 다 나온 뒤 번역, 자막 문체 | `CarryOver`, `CaptionDetector`, `TextSettling` |
 | `docs/design/translation.md` | 번역 기억, 대상 언어 문단 건너뛰기, 엔진·모델 고르기, 묶음·순서, 로컬 모델(MLX) | `TranslationMemory`, `LanguageDetection`, `EngineSettings`, `TranslationScheduling`, `LocalModel` |
