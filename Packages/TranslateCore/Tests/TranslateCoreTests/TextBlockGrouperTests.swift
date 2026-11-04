@@ -202,6 +202,11 @@ struct TextBlockGrouperTests {
         // X 게시물 머리줄 (첫 줄은 실제 화면 OCR 결과: "17분"을 "17₽"로 읽었다)
         "Sylvester Osemudiamen Prosper @Sylvester070783 • 17₽", "Sylvester Osemudiamen Prosper @SylvesterO70783 · 17분",
         "Jane Doe @jane · Nov 2, 2023", "김철수 @chulsoo · 11월 2일", "山田太郎 @yamada · 3時間", "Jane Doe @ jane · 2h",
+        // OCR이 "·"를 빠뜨리거나 붙여 읽은 X 머리줄 (재현 화면 OCR 결과·사용자 화면, TASK-070. "455"는 "45초")
+        "Margarete @BoernieMargarete 10초", "Theo @theo_onchain 11월 2일", "Kai @kai_writes 455", "Jane Doe @jane Nov 2",
+        "山田太郎 @yamada・3時間", "@yui_dev・17分",
+        // 아이디만 있는 줄 (답글 대상 줄이 나뉘어 "님과"를 "&Z"로 읽었다)
+        "@NorthwindLab&Z", "@jane @bob", "@ jane",
     ])
     func recognizesBylines(text: String) {
         #expect(TextBlockGrouper.isByline(line(text, y: 0)))
@@ -214,6 +219,8 @@ struct TextBlockGrouperTests {
         "Thanks @bob. 2 more things", "Thanks @bob . 2 more things",
         "@OpenAI GPT-6.1 Terra: $1 per million input tokens",
         "cc @jane", "Jane Doe @jane · 방금",
+        // 구분점이 없으면 시각 모양을 좁게 본다
+        "Meet @john at 5", "Ask @bob 2 questions about it", "@jane thanks for the 2 tips", "Say hi to @john tomorrow",
     ])
     func doesNotTakeOtherLinesForBylines(text: String) {
         #expect(!TextBlockGrouper.isByline(line(text, y: 0)))
@@ -228,6 +235,34 @@ struct TextBlockGrouperTests {
 
         // 이름·아이디는 번역 대상이 아니다 (이름이 한글 발음으로 바뀌었다)
         #expect(blocks.map(\.isTranslatable) == [false, false, true])
+    }
+
+    @Test func keepsXHeaderWithoutSeparatorOutOfBody() {
+        // 재현 화면(Chrome 2배)의 OCR 줄: 머리줄 "·"가 빠졌고, 답글 대상 줄은 둘로 나뉘었다
+        let blocks = TextBlockGrouper.group([
+            line("Theo @theo_onchain 11월 2일", x: 128, y: 677, width: 424, height: 41),
+            line("Short note about the new build and what changed this week.", x: 128, y: 722, width: 600, height: 30),
+            line("@NorthwindLab&Z", x: 137, y: 870, width: 252, height: 28),
+            line("@river_onchain님께 보내는 답글", x: 403, y: 868, width: 392, height: 35),
+            line(
+                "So when does an assistant actually start coordinating work, rather than just", x: 135, y: 914,
+                width: 951),
+        ])
+
+        #expect(blocks.count == 5)
+        #expect(blocks.map(\.isTranslatable) == [false, true, true, false, true])
+        #expect(blocks.last?.text == "So when does an assistant actually start coordinating work, rather than just")
+    }
+
+    @Test func joinsSidebarParagraphBesideFarByline() {
+        // 다른 단(사이드바) 문단은 같은 높이에 작성자 줄이 있어도 잇는다
+        let blocks = TextBlockGrouper.group([
+            line("Theo @theo_onchain · 11월 2일", x: 128, y: 0, width: 424, height: 30),
+            line("우리가 함께한다면 무엇도 두렵지 않을 거야 같이 갈", x: 1460, y: 0, width: 510, height: 30),
+            line("준비됐지?", x: 1460, y: 38, width: 120, height: 30),
+        ])
+
+        #expect(blocks.map(\.text) == ["Theo @theo_onchain · 11월 2일", "우리가 함께한다면 무엇도 두렵지 않을 거야 같이 갈 준비됐지?"])
     }
 
     @Test func joinsWrappedBodyLineEndingWithRelativeTime() {
