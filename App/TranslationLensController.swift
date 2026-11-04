@@ -155,8 +155,8 @@ final class LensSession {
     /// 문단마다 이모지 그림 (`TextBlock.emojis` 순서)
     private var emojis: [[CGImage]] = []
     private var scale: CGFloat = 2
-    /// 마지막으로 인식한 캡처 이미지 높이(픽셀). 렌즈 끝에 걸친 문단을 가린다
-    private var imageHeight: CGFloat = 0
+    /// 마지막으로 인식한 캡처 이미지 크기(픽셀). 렌즈 끝에 걸친 문단을 가리고, 바뀐 곳에 걸친 문단을 찾는다
+    private var imageSize: CGSize = .zero
     private var loopTask: Task<Void, Never>?
     private var translateTask: Task<Void, Never>?
     /// 진행 중인 요청의 원문. 화면이 지나가면 요청을 버리는 데 쓴다
@@ -198,6 +198,9 @@ final class LensSession {
     private var lastUserAction: ContinuousClock.Instant?
     /// 렌즈 아래 내용을 움직이는 스크롤을 마지막으로 한 때
     private var lastScroll: ContinuousClock.Instant?
+    /// 포인터를 렌즈 위에서 마지막으로 움직이거나 누른 때. 그 뒤 잠시 자주 찍는다 (`CaptureSchedule.pointerActivePeriod`)
+    private var lastPointerActivity: ContinuousClock.Instant?
+    private var pointerMonitor: Any?
     /// 지금 스크롤 묶음(0.5초 안에 이어지는 스크롤)이 렌즈 아래 창에서 일어났는지. 창 목록은 묶음의 첫 이벤트에서만 본다
     private var scrollBurst: (inLensWindow: Bool, last: ContinuousClock.Instant)?
     /// 마지막 캡처에서 화면이 바뀌는 중이었는지. 그동안은 자주 찍어 멈춤을 빨리 확인한다 (`CaptureSchedule`)
@@ -281,7 +284,14 @@ final class LensSession {
         }
         // 링크를 누르거나 다른 앱으로 바꾸면 영상 위에서처럼 번역을 계속 보여주지 않고 평소대로 숨긴다
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            MainActor.assumeIsolated { self?.didAct() }
+            MainActor.assumeIsolated {
+                self?.didAct()
+                self?.notePointerActivity()
+            }
+        }
+        // 포인터를 올리면 열리는 메뉴를 빨리 알아채도록 렌즈 위에서 움직이는 동안 자주 찍는다 (TASK-072)
+        pointerMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
+            MainActor.assumeIsolated { self?.notePointerActivity() }
         }
         appSwitchObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
@@ -310,6 +320,10 @@ final class LensSession {
             NSEvent.removeMonitor(clickMonitor)
         }
         clickMonitor = nil
+        if let pointerMonitor {
+            NSEvent.removeMonitor(pointerMonitor)
+        }
+        pointerMonitor = nil
         if let appSwitchObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(appSwitchObserver)
         }
@@ -344,10 +358,11 @@ final class LensSession {
                 if !scrolled(since: .now - Self.scrollQuietPeriod) {
                     model.isOutdated = false
                 }
+                showAllParagraphs()
                 return
             case .movedAway:
                 markChange()
-                model.isOutdated = true
+                hideChangedParagraphs()
                 return
             case .settled, .keepsChanging:
                 break
@@ -406,8 +421,10 @@ final class LensSession {
                 model.isWatchingVideo = tracker.isKeepingUp
             }
             scale = selection.scale
-            imageHeight = CGFloat(image.height)
+            imageSize = CGSize(width: image.width, height: image.height)
             model.hasRecognized = true
+            // 새 문단은 지금 화면에서 읽었으므로 숨기지 않는다
+            showAllParagraphs()
             refreshParagraphs()
             abandonTranslationIfPassed()
             let missing = memory.missing(in: blocks, for: model.language).count
@@ -487,8 +504,36 @@ final class LensSession {
         lastUserAction = .now
     }
 
+    /// 포인터가 렌즈 위에 있으면 동작한 때를 기록한다. 이벤트가 잦으므로(초당 수십 번) 위치만 본다
+    private func notePointerActivity() {
+        guard frame.contains(NSEvent.mouseLocation) else { return }
+        lastPointerActivity = .now
+    }
+
+    /// 처리한 화면과 달라진 곳에 걸친 문단의 번역만 숨긴다. 메뉴가 열리거나 닫혀도 나머지 번역은 그대로 보인다(TASK-072:
+    /// 전부 숨기면 메뉴에 포인터를 올릴 때마다 렌즈 전체가 원문으로 깜빡였다). 달라진 곳을 모르면(처음 화면) 모두 숨긴다.
+    /// 스크롤은 이벤트로 먼저 모두 숨긴다(`didScroll`)
+    private func hideChangedParagraphs() {
+        guard let area = tracker.changedArea else {
+            model.isOutdated = true
+            return
+        }
+        let size = imageSize
+        let hidden = Set(blocks.indices.filter { area.intersects(blocks[$0].boundingBox, in: size) })
+        if model.hiddenParagraphIDs != hidden {
+            model.hiddenParagraphIDs = hidden
+        }
+    }
+
+    private func showAllParagraphs() {
+        if !model.hiddenParagraphIDs.isEmpty {
+            model.hiddenParagraphIDs = []
+        }
+    }
+
     private func nextCaptureDelay() -> Duration {
-        CaptureSchedule.delay(isChanging: isScreenChanging, lastScroll: lastScroll, now: .now)
+        CaptureSchedule.delay(
+            isChanging: isScreenChanging, lastScroll: lastScroll, lastPointerActivity: lastPointerActivity, now: .now)
     }
 
     private func markChange() {
@@ -572,7 +617,7 @@ final class LensSession {
         let language = model.language
         // 영상(계속 바뀌는 화면)의 자막만 문체를 맞춘다 (사용자 선택, TASK-048)
         let style = tracker.isKeepingUp ? language.subtitleStyle : nil
-        let height = imageHeight
+        let height = imageSize.height
         let missing = TranslationScheduling.prioritized(memory.missing(in: blocks, for: language)) {
             LensGeometry.isCutOff($0, imageHeight: height)
         }

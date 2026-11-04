@@ -9,8 +9,8 @@ struct ChangeTrackerTests {
         ("Pricing plans are billed monthly.", 160), ("Annual billing saves 20 percent.", 220),
     ]
 
-    private func fingerprint(_ lines: [(String, CGFloat)]) throws -> ImageFingerprint {
-        let image = try #require(TextImage.render(lines.map { .init(text: $0.0, x: 40, top: $0.1) }))
+    private func fingerprint(_ lines: [(String, CGFloat)], popups: [TextImage.Popup] = []) throws -> ImageFingerprint {
+        let image = try #require(TextImage.render(lines.map { .init(text: $0.0, x: 40, top: $0.1) }, popups: popups))
         return try #require(ImageFingerprint(image))
     }
 
@@ -155,6 +155,65 @@ struct ChangeTrackerTests {
         let results = timedChanges(frames + [paused, paused], tracker: &tracker)
 
         #expect(Array(results.suffix(3)) == [.keepsChanging, .unchanged, .settled])
+    }
+
+    // MARK: 바뀐 곳 (TASK-072)
+
+    private let imageSize = CGSize(width: 900, height: 400)
+    /// 둘째·셋째 줄의 오른쪽 부분을 덮는 드롭다운 메뉴
+    private let menu = TextImage.Popup(
+        rect: CGRect(x: 320, y: 90, width: 400, height: 110),
+        lines: [
+            .init(text: "Search API", x: 340, top: 104, size: 20),
+            .init(text: "Contents API", x: 340, top: 150, size: 20),
+        ])
+
+    /// `page` 줄의 글 영역 (이미지 픽셀, 왼쪽 위 원점, 28pt 글자)
+    private func lineBox(_ index: Int) -> CGRect {
+        CGRect(x: 40, y: page[index].1, width: 460, height: 34)
+    }
+
+    private func changedLines(in area: ChangedArea) -> [Bool] {
+        page.indices.map { area.intersects(lineBox($0), in: imageSize) }
+    }
+
+    @Test func menuChangesOnlyLinesItCovers() throws {
+        let area = try fingerprint(page, popups: [menu]).changedArea(since: fingerprint(page))
+
+        // 메뉴가 덮은 둘째·셋째 줄만 바뀌었고, 바로 위아래 줄(메뉴와 16~20px 떨어짐)은 그대로다
+        #expect(changedLines(in: area) == [false, true, true, false])
+    }
+
+    @Test func scrollingChangesEveryLine() throws {
+        let area = try fingerprint(page.map { ($0.0, $0.1 - 4) }).changedArea(since: fingerprint(page))
+
+        #expect(changedLines(in: area) == [true, true, true, true])
+    }
+
+    @Test func sameScreenHasNoChangedArea() throws {
+        let area = try fingerprint(page).changedArea(since: fingerprint(page))
+
+        #expect(area.isEmpty)
+        #expect(changedLines(in: area) == [false, false, false, false])
+    }
+
+    @Test func reportsChangedAreaWhenMovedAway() throws {
+        let first = try fingerprint(page)
+        let opened = try fingerprint(page, popups: [menu])
+        var tracker = ChangeTracker()
+
+        // 처리한 화면이 없으면 바뀐 곳을 모른다(보여주던 번역도 없다)
+        #expect(tracker.observe(first) == .movedAway)
+        #expect(tracker.changedArea == nil)
+        #expect(tracker.observe(first) == .settled)
+
+        // 메뉴가 열림: 전체 평균으로는 크게 바뀌었지만 바뀐 곳은 메뉴 자리뿐이다
+        #expect(tracker.observe(opened) == .movedAway)
+        let area = try #require(tracker.changedArea)
+        #expect(changedLines(in: area) == [false, true, true, false])
+
+        #expect(tracker.observe(opened) == .settled)
+        #expect(tracker.changedArea == nil)
     }
 
     @Test func resetStartsOver() throws {

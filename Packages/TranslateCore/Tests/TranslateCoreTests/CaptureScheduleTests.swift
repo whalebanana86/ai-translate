@@ -24,6 +24,16 @@ struct CaptureScheduleTests {
             CaptureSchedule.delay(isChanging: true, lastScroll: now - .seconds(2), now: now) == .milliseconds(150))
     }
 
+    @Test func capturesOftenForAWhileAfterPointerMovesOverLens() {
+        let recent = CaptureSchedule.delay(
+            isChanging: false, lastScroll: nil, lastPointerActivity: now - .milliseconds(900), now: now)
+        let stopped = CaptureSchedule.delay(
+            isChanging: false, lastScroll: nil, lastPointerActivity: now - .seconds(1), now: now)
+
+        #expect(recent == .milliseconds(150))
+        #expect(stopped == .milliseconds(500))
+    }
+
     @Test func capturesSlowlyWhenIdle() {
         #expect(CaptureSchedule.delay(isChanging: false, lastScroll: nil, now: now) == .milliseconds(500))
     }
