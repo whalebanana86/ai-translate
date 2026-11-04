@@ -44,7 +44,8 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
 - OCR: Vision `RecognizeTextRequest`를 반드시 언어 자동 감지 + 언어 힌트로 쓴다. 기본값(en-US 하나)은 한국어를 인식하지 못하고,
   자동 감지 없이 여러 언어를 지정하면 일본어 줄이 빠진다. 번역 단위는 줄이 아니라 `TextBlockGrouper`로 묶은 문단이다
 - 전역 단축키: Carbon `RegisterEventHotKey` 기반(KeyboardShortcuts 패키지 3.1.0, 기본값 ⌘⇧1 `KeyboardShortcuts.Name.translateRegion`).
-  `NSEvent` 전역 모니터는 손쉬운 사용 권한이 필요하므로 쓰지 않는다
+  키 입력 `NSEvent` 전역 모니터는 손쉬운 사용 권한이 필요하므로 쓰지 않는다 (마우스·스크롤 전역 모니터는 권한이 필요 없어 렌즈가 쓴다,
+  `docs/design/capture.md`)
 - 렌즈 창은 포커스를 빼앗지 않는 패널이고 띄운 데스크톱(Space)에만 둔다
 - 번역 요청은 동시에 하나만 보낸다(병렬로 보내도 빨라지지 않았다)
 - 권한: 화면 기록(TCC). 권한이 없거나 거부된 상태를 반드시 처리하고 사용자에게 안내한다
@@ -152,8 +153,10 @@ swift format format -i -r --configuration .swift-format App Packages/TranslateCo
   문체 지시는 채팅 형식의 시스템 메시지로 넣고 번역 프롬프트는 모델 카드 그대로 둔다(TASK-048). 페이지 글에 모델 특수 토큰 문자열(`<｜hy_…｜>`)이 있으면 대화 형식을 바꿀 수 있으므로 전각 세로줄을 보통 세로줄로 바꿔
   무력화한다. 생성 길이 상한을 둔다. 받은 모델 파일은 고정 해시와 맞을 때만 쓴다
 - 도구나 샌드박스 제한을 완화하는 변경은 금지한다. 예: `--tools`에 도구 허용, `--dangerously-*` 플래그, `danger-full-access`.
-- 모든 엔진 호출에 시간 제한을 두고, 새 요청이 오면 이전 프로세스를 종료한다.
+- 모든 엔진 호출에 시간 제한을 두고, 새 요청이 오면 이전 프로세스를 종료한다. 로컬 엔진은 문단마다 생성 길이 상한에 맞춘 시간 제한을
+  둔다(`HyMTPrompt.timeLimit`).
   외부 프로세스는 `ProcessExecutor`로만 실행한다 (시간 제한·Task 취소 시 종료, 큰 입출력 교착 방지, SIGPIPE 방지).
+  예외는 앱을 다시 여는 `/bin/sh` 하나다(앱이 끝난 뒤에도 남아야 한다, `docs/design/localization.md`).
   새 요청 시 이전 요청 종료는 호출 측에서 이전 Task를 취소하는 방식으로 한다.
 - 실제 엔진을 호출하는 테스트는 `AITRANSLATE_LIVE_TESTS=1`일 때만 실행되게 한다. 기본 검증 루프에서는 네트워크·로그인 없이 통과해야 한다.
 - GUI 앱은 셸 PATH를 상속하지 않는다. CLI 경로는 사용자 설정값을 먼저 보고, 없으면 로그인 셸(`zsh -lc 'command -v claude'`)로 찾는다.

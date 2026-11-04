@@ -15,7 +15,7 @@
     `swift build`·`swift test`는 카탈로그를 컴파일하지 않아 테스트에서는 한국어 원문이 나온다(앱은 xcodebuild가 컴파일)
   - 언어 고르기(설정 "언어", `AppLanguage`, `App/AppLanguageSettings.swift`): macOS 앱별 언어와 같은 값(앱 도메인 `AppleLanguages`)을
     쓴다. 시스템 설정은 값을 지운다. 화면 글은 앱이 시작할 때 정해지므로 바꾸면 "다시 시작"을 보인다(앱이 끝나기를 기다렸다가 `open`으로
-    다시 여는 `/bin/sh`를 띄우고 종료. 번역 엔진 호출이 아니라 `ProcessExecutor`를 쓰지 않는다). 시스템 언어가 한국어·영어가 아니면
-    개발 언어인 한국어로 보인다(`-AppleLanguages (ja)`로 확인)
+    다시 여는 `/bin/sh`를 띄우고 종료. 앱이 끝난 뒤에도 남아야 해서 `ProcessExecutor`를 쓰지 않는다: AGENTS.md 4장의 유일한 예외,
+    TASK-075). 시스템 언어가 한국어·영어가 아니면 개발 언어인 한국어로 보인다(`-AppleLanguages (ja)`로 확인)
   - 앱 도메인에 `AppleLanguages`를 두면 `Locale.preferredLanguages`도 그 값만 돌려주므로, 번역 대상 언어 기본값은 전역 값
     (`AppLanguage.systemLanguages()`)으로 정한다(영어 화면에서도 대상 언어 기본값은 시스템 언어)
