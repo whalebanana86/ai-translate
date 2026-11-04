@@ -44,6 +44,7 @@ public enum TextBlockGrouper {
             ($0.0.boundingBox.minY, $0.0.boundingBox.minX) < ($1.0.boundingBox.minY, $1.0.boundingBox.minX)
         }
         let sortedLines = sorted.map(\.0)
+        let bylines = sortedLines.filter(isByline)
         var blocks: [[(RecognizedLine, LineStyle?)]] = []
         for (line, style) in sorted {
             // 다단 구성에서는 단마다 줄이 번갈아 나오므로 직전 문단만이 아니라 모든 문단의 마지막 줄과 비교한다
@@ -51,6 +52,7 @@ public enum TextBlockGrouper {
                 guard let last = block.last else { return false }
                 return continues(last.0, with: line, styles: (last.1, style)) && !differInStyle(last.1, style)
                     && !sitsInRow(line, among: sortedLines, under: block.map(\.0))
+                    && !sharesRow(last.0, withAnyOf: bylines)
             }
             if let index {
                 blocks[index].append((line, style))
@@ -134,26 +136,69 @@ public enum TextBlockGrouper {
     static let bylineSeparators: Set<Character> = ["·", "•", "∙", "・", ".", "-", "–", "—"]
     /// 게시 시각 단어 수 ("17분", "11월 2일", "Nov 2, 2023")
     static let maxBylineTimeWords = 3
+    /// 작성자 줄과 한 줄로 보는 옆 글줄의 최대 가로 간격 (줄 높이 배수, `sharesRow`)
+    static let maxRowGapRatio: CGFloat = 2
+    /// 앞뒤 단어에 붙어 읽히는 가운뎃점 ("@yui_dev・17分"). 마침표·하이픈은 아이디·본문 안에도 있어 띄우지 않는다
+    static let middleDots: Set<Character> = ["·", "•", "∙", "・"]
+    /// 구분점 없는 게시 시각의 첫 단어 최대 길이 ("2024년", "455"(45초 오인식))
+    static let maxBareTimeLength = 5
+    static let monthAbbreviations: Set<String> = [
+        "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+    ]
 
     /// 작성자 줄. 앞뒤 줄과 잇지 않고(본문에 이으면 번역이 원문 너비 안에서 다시 줄바꿈돼 날짜가 다음 줄로 밀렸다, TASK-043)
     /// 번역하지 않는다(이름이 한글 발음으로 바뀌었다, TASK-051).
     /// - 댓글 머리줄처럼 작성자 옆에 상대 시각이 붙은 줄("@아이디 6년 전(수정됨)", "@user 2 days ago"). 상대 시각 앞 단어가 적은
     ///   줄만 본다: 본문의 긴 줄이 "... 2 years ago"로 끝나는 경우는 잇는다
     /// - 이름 뒤 아이디와 게시 시각("Name @handle · 17분", X): 아이디 뒤가 구분점과 짧은 시각(마지막 단어에 숫자)뿐인 줄
+    /// - 아이디만 있는 줄("@jane @bob", 답글 대상 줄이 나뉘어 "님과"를 "&Z"로 읽은 "@NorthwindLab&Z", TASK-070)
     static func isByline(_ line: RecognizedLine) -> Bool {
-        isPostHeader(line.text) || endsWithRelativeTime(line.text)
+        isPostHeader(line.text) || isHandlesOnly(line.text) || endsWithRelativeTime(line.text)
     }
 
     static func isPostHeader(_ text: String) -> Bool {
-        let words = text.split(whereSeparator: \.isWhitespace)
+        let spaced = String(text.flatMap { middleDots.contains($0) ? [" ", $0, " "] : [$0] })
+        let words = spaced.split(whereSeparator: \.isWhitespace)
         guard let at = words.firstIndex(where: { $0.hasPrefix("@") }) else { return false }
         // OCR이 "@ 아이디"로 띄어 읽은 경우
         let handle = words[at] == "@" ? at + 1 : at
         guard handle + 1 < words.count else { return false }
         let tail = words[(handle + 1)...].joined(separator: " ")
-        guard let separator = tail.first, bylineSeparators.contains(separator) else { return false }
+        guard let separator = tail.first, bylineSeparators.contains(separator) else {
+            // X 머리줄은 단어 사이가 CSS 간격이라 OCR이 "·"를 빠뜨렸다("Theo @theo_onchain 11월 2일", 사용자 화면
+            // "@BoernieMargarete 10초", TASK-070). 구분점이 없으면 본문("Meet @john at 5")과 헷갈리기 쉬워 시각 모양을 좁게 본다
+            return isBarePostTime(words[(handle + 1)...])
+        }
         let time = tail.dropFirst().split(whereSeparator: \.isWhitespace)
         return (1...maxBylineTimeWords).contains(time.count) && time.last?.contains(where: \.isNumber) == true
+    }
+
+    /// 구분점 없이 아이디 뒤에 온 게시 시각: 첫 단어가 숫자로 시작하는 짧은 단어("10초", "455", "11월")거나 달 이름("Nov")이고
+    /// 마지막 단어에 숫자가 있다
+    static func isBarePostTime(_ words: ArraySlice<Substring>) -> Bool {
+        guard let first = words.first, (1...maxBylineTimeWords).contains(words.count),
+            words.last?.contains(where: \.isNumber) == true
+        else { return false }
+        let startsWithNumber = first.first?.isNumber == true && first.count <= maxBareTimeLength
+        let isMonth = first.count <= 4 && monthAbbreviations.contains(first.prefix(3).lowercased())
+        return startsWithNumber || isMonth
+    }
+
+    /// 단어가 모두 아이디인 줄 ("@jane @bob", OCR이 띄어 읽은 "@ jane")
+    static func isHandlesOnly(_ text: String) -> Bool {
+        let words = text.split(whereSeparator: \.isWhitespace)
+        guard words.first?.hasPrefix("@") == true else { return false }
+        var expectsName = false
+        for word in words {
+            if expectsName {
+                expectsName = false
+            } else if word == "@" {
+                expectsName = true
+            } else if !word.hasPrefix("@") {
+                return false
+            }
+        }
+        return !expectsName
     }
 
     /// 줄 끝 상대 시각. 한 번만 만든다: 부를 때마다 만들면 한 번 약 0.24ms(찾기는 0.01ms)라, 줄마다 모든 문단과 비교하는 묶기가
@@ -180,6 +225,20 @@ public enum TextBlockGrouper {
         let text = line.text.lowercased().filter { !$0.isWhitespace }
         let trimmed = text.reversed().drop { $0 == "." || $0 == "…" }.reversed()
         return expandLinks.contains(String(trimmed))
+    }
+
+    /// 작성자 줄과 같은 높이에 바로 붙어 있는 줄. 그 아래 본문과 잇지 않는다: X 답글 대상 줄 "@A님과 @B님께 보내는 답글"을 OCR이
+    /// "@A&Z"(아이디만 있는 줄, 작성자 줄)와 "@B님께 보내는 답글"로 나눠 읽어, 뒤쪽이 본문에 붙었다 (TASK-070).
+    /// 다른 단의 글줄(같은 높이의 사이드바)은 멀리 떨어져 있어 해당하지 않는다
+    static func sharesRow(_ line: RecognizedLine, withAnyOf bylines: [RecognizedLine]) -> Bool {
+        let box = line.boundingBox
+        return bylines.contains { other in
+            let neighbor = other.boundingBox
+            let overlap = min(neighbor.maxY, box.maxY) - max(neighbor.minY, box.minY)
+            let gap = max(neighbor.minX - box.maxX, box.minX - neighbor.maxX)
+            return other != line && overlap >= min(neighbor.height, box.height) * 0.5
+                && gap <= max(neighbor.height, box.height) * maxRowGapRatio
+        }
     }
 
     /// 같은 높이에 다른 글줄이 나란히 있고 그 글줄이 문단의 가로 범위 안에 있으면, `line`은 문단의 다음 줄이 아니라
