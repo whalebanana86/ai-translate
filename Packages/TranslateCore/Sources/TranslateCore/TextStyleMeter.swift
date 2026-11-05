@@ -84,6 +84,12 @@ public enum TextStyleMeter {
     /// 이 비율보다 많은 픽셀이 반 넘게 덮인 가로줄은 글자가 아니라 밑줄이나 이웃한 색 영역(구분선, 강조 줄)으로 보고 거기서 잉크
     /// 찾기를 멈춘다. 멈추지 않으면 링크 밑줄까지 잉크로 세어 11% 크게 쟀다(테스트)
     static let solidRowFill: Float = 0.8
+    /// 세로 선(그래프 축, 표 테두리)으로 보는 덮임과 길이(줄 상자 높이 배수, `Pixels.removingVerticalRules`). 글자 획은 글자 크기의
+    /// 1.3배 안이고 OCR 줄 상자는 글자 크기의 0.5배 넘게 높다(Chrome 측정, 잰 크기 ÷ 상자 2.02 이하)
+    static let ruleCoverage: Float = 0.3
+    static let ruleLengthRatio: CGFloat = 3
+    /// 세로 선으로 보는 최대 폭(줄 상자 높이 배수). 그래프 축·표 테두리는 1~2pt
+    static let ruleWidthRatio: CGFloat = 0.25
 
     /// 줄마다 잰 크기·굵기·기준선. 잴 수 없으면 nil. 바탕색은 줄 상자에서 가장 많은 색
     public static func measure(_ lines: [RecognizedLine], in image: CGImage) -> [LineStyle?] {
@@ -187,8 +193,11 @@ public enum TextStyleMeter {
         let bottom = min(Int(limits.upperBound.rounded(.up)), pixels.height)
         guard box.height >= 4, x1 - x0 >= 2, bottom - top >= 4 else { return nil }
         guard let ink = pixels.inkColor(in: box, background: background, excluding: line.emojis) else { return nil }
-        let region = pixels.coverage(
-            x: x0..<x1, y: top..<bottom, background: background, ink: ink, excluding: line.emojis)
+        let region = pixels.removingVerticalRules(
+            from: pixels.coverage(
+                x: x0..<x1, y: top..<bottom, background: background, ink: ink, excluding: line.emojis),
+            x: x0..<x1, y: top..<bottom, background: background, ink: ink,
+            longerThan: Int(box.height * ruleLengthRatio), narrowerThan: max(Int(box.height * ruleWidthRatio), 1))
         guard let rows = inkRows(region, center: Int(box.midY) - top, lineHeight: box.height) else { return nil }
 
         let text = EmojiFinder.removingMarkers(line.text)
@@ -420,6 +429,81 @@ public enum TextStyleMeter {
                 }
             }
             return Coverage(width: columnCount, values: values)
+        }
+
+        /// 세로 선(그래프 축, 표 테두리)을 지운 덮임. 찾는 범위 위나 아래 끝에서 이어진 덮인 열을 범위 밖까지 따라가 `length`보다
+        /// 길고, 그런 열이 `maxWidth` 폭 안이면 범위 안 그 부분을 지운다. 지우지 않으면 축이 지나는 줄마다 잉크가 축 끝까지 이어져 글자를 크게 쟀다(TASK-078: 막대그래프
+        /// 이름 24.6px를 33~40px로 재 아래 줄과 한 문단이 됐다). 범위 안만 보면 줄 상자가 글자보다 작은 줄에서 "l" 획도 범위 끝에 닿았다
+        func removingVerticalRules(
+            from region: Coverage, x columns: Range<Int>, y rows: Range<Int>, background: [Float], ink: [Float],
+            longerThan length: Int, narrowerThan maxWidth: Int
+        ) -> Coverage {
+            let count = rows.count
+            guard region.width == columns.count, count > 0, region.values.count == region.width * count else {
+                return region
+            }
+            let (backRed, backGreen, backBlue) = (background[0], background[1], background[2])
+            let (axisRed, axisGreen, axisBlue) = (ink[0] - backRed, ink[1] - backGreen, ink[2] - backBlue)
+            let scale = 1 / max(axisRed * axisRed + axisGreen * axisGreen + axisBlue * axisBlue, 1)
+            let threshold = TextStyleMeter.ruleCoverage
+            var values = region.values
+            var changed = false
+            // 열마다 지울 줄 범위
+            var rules = [[Range<Int>]](repeating: [], count: region.width)
+            bytes.withUnsafeBufferPointer { bytes in
+                func covered(_ x: Int, _ y: Int) -> Bool {
+                    let index = (y * width + x) * 4
+                    let dot =
+                        (Float(bytes[index]) - backRed) * axisRed + (Float(bytes[index + 1]) - backGreen) * axisGreen
+                        + (Float(bytes[index + 2]) - backBlue) * axisBlue
+                    return dot * scale > threshold
+                }
+                for column in 0..<region.width {
+                    func inRegion(_ row: Int) -> Bool { values[row * region.width + column] > threshold }
+                    guard inRegion(0) || inRegion(count - 1) else { continue }
+                    let x = columns.lowerBound + column
+                    var fromTop = 0
+                    while fromTop < count, inRegion(fromTop) { fromTop += 1 }
+                    var fromBottom = 0
+                    while fromBottom < count, inRegion(count - 1 - fromBottom) { fromBottom += 1 }
+                    var above = 0
+                    while fromTop > 0, above < length, rows.lowerBound - 1 - above >= 0,
+                        covered(x, rows.lowerBound - 1 - above)
+                    {
+                        above += 1
+                    }
+                    var below = 0
+                    while fromBottom > 0, below < length, rows.upperBound + below < height,
+                        covered(x, rows.upperBound + below)
+                    {
+                        below += 1
+                    }
+                    rules[column] =
+                        fromTop == count
+                        ? (above + count + below > length ? [0..<count] : [])
+                        : (above + fromTop > length ? [0..<fromTop] : [])
+                            + (fromBottom + below > length ? [(count - fromBottom)..<count] : [])
+                }
+            }
+            // 가는 선만 지운다. 넓게 이어진 열은 선이 아니라 이웃한 색 영역(자막 상자 밖 페이지)이고, 지우면 그 줄이 꽉 찬 줄로 보이지 않아
+            // 잉크 찾기가 멈추지 않았다(자막 25px → 44px)
+            var column = 0
+            while column < region.width {
+                guard !rules[column].isEmpty else {
+                    column += 1
+                    continue
+                }
+                let start = column
+                while column < region.width, !rules[column].isEmpty { column += 1 }
+                guard column - start <= maxWidth else { continue }
+                for rule in start..<column {
+                    for row in rules[rule].joined() {
+                        values[row * region.width + rule] = 0
+                    }
+                }
+                changed = true
+            }
+            return changed ? Coverage(width: region.width, values: values) : region
         }
     }
 

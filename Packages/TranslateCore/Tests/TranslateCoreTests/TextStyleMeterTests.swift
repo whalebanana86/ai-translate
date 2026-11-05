@@ -5,8 +5,10 @@ import Testing
 
 struct TextStyleMeterTests {
     /// 그린 이미지를 실제 OCR로 읽고 문단마다 크기·굵기를 잰다 (문단은 위에서부터)
-    private func measure(_ lines: [TextImage.Line], width: Int = 1400, height: Int = 400) async throws -> [TextStyle?] {
-        let image = try #require(TextImage.render(lines, width: width, height: height))
+    private func measure(
+        _ lines: [TextImage.Line], shapes: [TextImage.Shape] = [], width: Int = 1400, height: Int = 400
+    ) async throws -> [TextStyle?] {
+        let image = try #require(TextImage.render(lines, shapes: shapes, width: width, height: height))
         let recognized = try await TextRecognizer().recognize(image)
         let lineStyles = TextStyleMeter.measure(recognized, in: image)
         let blocks = TextBlockGrouper.group(recognized, styles: lineStyles).sorted {
@@ -63,6 +65,43 @@ struct TextStyleMeterTests {
         let plainSize = try #require(plain.first ?? nil).pixelSize
         let linkedSize = try #require(linked.first ?? nil).pixelSize
         #expect(abs(linkedSize / plainSize - 1) < 0.03)
+    }
+
+    @Test func ignoresChartAxisCrossingLine() async throws {
+        // 그래프 축(세로 선)이 이름 줄을 지나면 잉크가 축 끝까지 이어져 글자를 크게 쟀다 (TASK-078: 24.6px를 33~40px로)
+        let line = TextImage.Line(text: "Read the full release notes", x: 40, top: 160, size: 40)
+        let axis = TextImage.Shape(
+            rect: CGRect(x: 300, y: 20, width: 3, height: 360), color: CGColor(gray: 0.5, alpha: 1))
+
+        let plain = try #require(try await measure([line]).first ?? nil).pixelSize
+        let crossed = try #require(try await measure([line], shapes: [axis]).first ?? nil).pixelSize
+
+        #expect(abs(crossed / plain - 1) < 0.05, "축 없이 \(plain), 축이 지나면 \(crossed)")
+    }
+
+    @Test func removesOnlyThinLongVerticalLines() throws {
+        // 찾는 범위(가운데 40줄) 밖까지 길게 이어진 가는 선만 지운다. 넓게 이어진 영역(자막 상자 밖 페이지)을 열마다 지우면 상자 경계에서
+        // 잉크 찾기가 멈추지 않았고(자막 25px → 44px), 글자 획 길이의 선은 글자다
+        let black = CGColor(gray: 0, alpha: 1)
+        let image = try #require(
+            TextImage.render(
+                [],
+                shapes: [
+                    .init(rect: CGRect(x: 50, y: 0, width: 3, height: 200), color: black),
+                    .init(rect: CGRect(x: 100, y: 0, width: 200, height: 200), color: black),
+                    .init(rect: CGRect(x: 350, y: 70, width: 3, height: 60), color: black),
+                ], width: 400, height: 200))
+        let pixels = try #require(TextStyleMeter.Pixels(image))
+        let (background, ink): ([Float], [Float]) = ([255, 255, 255], [0, 0, 0])
+        let region = pixels.coverage(x: 0..<400, y: 80..<120, background: background, ink: ink, excluding: [])
+
+        let cleaned = pixels.removingVerticalRules(
+            from: region, x: 0..<400, y: 80..<120, background: background, ink: ink, longerThan: 100, narrowerThan: 8)
+
+        func column(_ x: Int) -> [Float] { (0..<40).map { cleaned.values[$0 * 400 + x] } }
+        #expect(column(51).allSatisfy { $0 == 0 })
+        #expect(column(200).allSatisfy { $0 == 1 })
+        #expect(column(351).allSatisfy { $0 == 1 })
     }
 
     @Test func tellsBoldFromRegular() async throws {
