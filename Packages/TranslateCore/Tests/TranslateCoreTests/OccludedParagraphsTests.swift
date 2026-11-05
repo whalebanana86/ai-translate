@@ -124,6 +124,18 @@ struct OccludedParagraphsTests {
         #expect(fragments.isEmpty)
     }
 
+    @Test func listsOccludedParagraphsInFragmentOrder() {
+        // 원래 문단 목록을 조각 위치 순으로 모은다(같은 문단은 한 번). 사전 순서로 모으면 읽을 때마다 순서가 바뀌었다 (TASK-079)
+        let sources = (0..<8).map { TextBlock(lines: [], text: "문단 \($0)", boundingBox: .zero) }
+        var fragments: [Int: TextBlock] = [:]
+        for (index, source) in sources.enumerated() {
+            fragments[index * 2] = source
+            fragments[index * 2 + 1] = source
+        }
+
+        #expect(OccludedParagraphs.sources(of: fragments) == sources)
+    }
+
     @Test func findsHeadingCutByPopupInRecognizedImage() async throws {
         let page: [TextImage.Line] = [
             .init(text: "Search API for agents", x: 40, top: 60, size: 40),

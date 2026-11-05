@@ -37,6 +37,27 @@ struct BlockColorsTests {
         #expect(isClose(colors.text, text, within: 0.06))
     }
 
+    @Test(arguments: [true, false])
+    func picksFirstColorWhenTwoColorsTie(redFirst: Bool) throws {
+        // 반은 빨강, 반은 파랑(개수가 같다): 먼저 나온(왼쪽) 색이 바탕이다. 사전 순서로 고르면 읽을 때마다 바뀌었다 (TASK-079)
+        let red = CGColor(srgbRed: 0.9, green: 0.1, blue: 0.1, alpha: 1)
+        let blue = CGColor(srgbRed: 0.1, green: 0.2, blue: 0.9, alpha: 1)
+        let image = try #require(
+            TextImage.render(
+                [],
+                shapes: [
+                    .init(rect: CGRect(x: 0, y: 0, width: 50, height: 40), color: redFirst ? red : blue),
+                    .init(rect: CGRect(x: 50, y: 0, width: 50, height: 40), color: redFirst ? blue : red),
+                ], width: 100, height: 40))
+
+        let backgrounds = (0..<50).compactMap { _ in
+            BlockColors.sample(image, in: CGRect(x: 0, y: 0, width: 100, height: 40))?.background
+        }
+
+        #expect(backgrounds.count == 50)
+        #expect(backgrounds.allSatisfy { ($0.red > 0.5) == redFirst })
+    }
+
     @Test func picksReadableTextColorWhenThereIsNoText() throws {
         let dark = try #require(render(background: SRGBColor(red: 0.11, green: 0.114, blue: 0.125), text: nil))
         let light = try #require(render(background: SRGBColor(red: 0.97, green: 0.97, blue: 0.97), text: nil))

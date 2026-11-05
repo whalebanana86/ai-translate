@@ -150,7 +150,7 @@ public enum TextStyleMeter {
         return candidates.min { abs(log($0.1 / strokeRatio)) < abs(log($1.1 / strokeRatio)) }?.0 ?? .regular
     }
 
-    /// 문단 글자가 가장 많은 문자
+    /// 문단 글자가 가장 많은 문자. 글자 수가 같으면 라틴 → 한글 → 한자·가나 순 (사전 순서로 고르면 읽을 때마다 바뀌었다, TASK-079)
     static func script(of text: String) -> Script {
         var counts: [Script: Int] = [:]
         for character in text where character.isLetter {
@@ -161,7 +161,7 @@ public enum TextStyleMeter {
             case .other: break
             }
         }
-        return counts.max { $0.value < $1.value }?.key ?? .latin
+        return [Script.latin, .hangul, .cjk].max { counts[$0, default: 0] < counts[$1, default: 0] } ?? .latin
     }
 
     // MARK: 줄 하나
@@ -322,25 +322,26 @@ public enum TextStyleMeter {
             self.bytes = bytes
         }
 
-        /// 영역에서 가장 많은 색(채널마다 상위 5비트로 묶어 센 뒤 그 묶음의 평균). 넓으면 건너뛰며 2000개쯤 본다
+        /// 영역에서 가장 많은 색(채널마다 상위 5비트로 묶어 센 뒤 그 묶음의 평균). 넓으면 건너뛰며 2000개쯤 본다.
+        /// 개수가 같으면 먼저 나온(위·왼쪽) 묶음: 사전 순서로 고르면 같은 화면도 읽을 때마다 바탕이 바뀌었다 (TASK-079)
         func dominantColor(in box: CGRect) -> [Float]? {
             let area = box.integral.intersection(CGRect(x: 0, y: 0, width: width, height: height))
             guard !area.isEmpty else { return nil }
             let step = max(Int((area.width * area.height / 2_000).squareRoot()), 1)
-            // 묶음마다 (개수, 빨강 합, 초록 합, 파랑 합)
-            var counts: [Int: (Int, Int, Int, Int)] = [:]
+            // 묶음마다 (개수, 빨강 합, 초록 합, 파랑 합, 처음 나온 순서)
+            var counts: [Int: (Int, Int, Int, Int, Int)] = [:]
             bytes.withUnsafeBufferPointer { bytes in
                 for y in stride(from: Int(area.minY), to: Int(area.maxY), by: step) {
                     for x in stride(from: Int(area.minX), to: Int(area.maxX), by: step) {
                         let index = (y * width + x) * 4
                         let (red, green, blue) = (Int(bytes[index]), Int(bytes[index + 1]), Int(bytes[index + 2]))
                         let key = (red >> 3) << 10 | (green >> 3) << 5 | blue >> 3
-                        let entry = counts[key] ?? (0, 0, 0, 0)
-                        counts[key] = (entry.0 + 1, entry.1 + red, entry.2 + green, entry.3 + blue)
+                        let entry = counts[key] ?? (0, 0, 0, 0, counts.count)
+                        counts[key] = (entry.0 + 1, entry.1 + red, entry.2 + green, entry.3 + blue, entry.4)
                     }
                 }
             }
-            guard let top = counts.values.max(by: { $0.0 < $1.0 }) else { return nil }
+            guard let top = counts.values.max(by: { ($0.0, $1.4) < ($1.0, $0.4) }) else { return nil }
             let count = Float(top.0)
             return [Float(top.1) / count, Float(top.2) / count, Float(top.3) / count]
         }

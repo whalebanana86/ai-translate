@@ -31,10 +31,7 @@ public enum OccludedParagraphs {
             fragments[index] = source
         }
         // 가려진 문단이 여러 문단으로 나뉘어 읽혔으면(가려진 줄 위아래) 온전한 줄만 남은 문단도 그 문단의 일부다
-        var occluded: [TextBlock] = []
-        for source in fragments.values where !occluded.contains(source) {
-            occluded.append(source)
-        }
+        let occluded = sources(of: fragments)
         for (index, block) in blocks.enumerated() where fragments[index] == nil {
             fragments[index] = occluded.first { source in
                 source.boundingBox.intersects(block.boundingBox)
@@ -50,11 +47,16 @@ public enum OccludedParagraphs {
         from blocks: [TextBlock], reference: [TextBlock]
     ) -> (blocks: [TextBlock], occluded: [TextBlock]) {
         let fragments = find(in: blocks, reference: reference)
-        var occluded: [TextBlock] = []
-        for source in fragments.values where !occluded.contains(source) {
-            occluded.append(source)
+        return (blocks.indices.filter { fragments[$0] == nil }.map { blocks[$0] }, sources(of: fragments))
+    }
+
+    /// 조각들의 원래 문단(겹치지 않게), 조각 위치 순. 사전 순서로 모으면 읽을 때마다 순서가 바뀌었다 (TASK-079)
+    static func sources(of fragments: [Int: TextBlock]) -> [TextBlock] {
+        var sources: [TextBlock] = []
+        for (_, source) in fragments.sorted(by: { $0.key < $1.key }) where !sources.contains(source) {
+            sources.append(source)
         }
-        return (blocks.indices.filter { fragments[$0] == nil }.map { blocks[$0] }, occluded)
+        return sources
     }
 
     enum LineMatch {
