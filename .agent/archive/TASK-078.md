@@ -57,3 +57,4 @@ README의 막대그래프(`docs/assets/charts/models.svg`, `servers.svg`). 번�
   `removesOnlyThinLongVerticalLines` 실패 ④ 폭 제한 빼기 → `removesOnlyThinLongVerticalLines`(넓은 영역 지움) 실패 ⑤ 길이 제한 빼기 →
   같은 테스트(짧은 획 지움) 실패. 매번 백업으로 되돌리고 `cmp`·`git status`로 확인.
 - 2026-11-05: 검증 루프 시도 1 Lint 실패(테스트 줄 길이) → `swift format`으로 고침 → 시도 2 통과. COMPLETED.
+- 2026-11-06: 사용자가 실제 앱 렌즈로 README 막대그래프를 보고 "막대그래프 정상"이라고 확인했다.
