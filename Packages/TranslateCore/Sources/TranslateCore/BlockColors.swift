@@ -89,13 +89,16 @@ public struct BlockColors: Equatable, Sendable {
         }
     }
 
-    /// 가장 많은 칸에 든 색들의 평균
+    /// 가장 많은 칸에 든 색들의 평균. 개수가 같으면 먼저 나온(위·왼쪽) 칸: 사전 순서로 고르면 같은 화면도 읽을 때마다 바탕·글자색이
+    /// 바뀌었다 (TASK-079)
     private static func dominant(_ pixels: [Pixel]) -> Pixel {
-        var counts: [Int: Int] = [:]
+        // 칸마다 (개수, 처음 나온 순서)
+        var counts: [Int: (count: Int, order: Int)] = [:]
         for pixel in pixels {
-            counts[pixel.bucket, default: 0] += 1
+            let order = counts.count
+            counts[pixel.bucket, default: (0, order)].count += 1
         }
-        let bucket = counts.max { $0.value < $1.value }?.key
+        let bucket = counts.max { ($0.value.count, $1.value.order) < ($1.value.count, $0.value.order) }?.key
         let members = pixels.filter { $0.bucket == bucket }
         let count = Double(max(members.count, 1))
         return Pixel(

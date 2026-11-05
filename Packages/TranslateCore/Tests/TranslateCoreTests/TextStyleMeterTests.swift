@@ -104,6 +104,35 @@ struct TextStyleMeterTests {
         #expect(column(351).allSatisfy { $0 == 1 })
     }
 
+    @Test(arguments: 0..<4)
+    func picksFirstBackgroundWhenColorsTie(rotation: Int) throws {
+        // 네 색 띠(개수가 같다): 먼저 나온(왼쪽) 색이 줄 바탕이다. 사전 순서로 고르면 같은 화면도 읽을 때마다 바탕이 바뀌어 글자 크기가
+        // 달랐다 (TASK-079: 저장한 화면 119장 중 12장). 두 색만으로는 사전 순서가 우연히 맞아 옛 코드도 통과했다
+        let grays: [CGFloat] = [0.1, 0.35, 0.6, 0.85]
+        let shapes = (0..<4).map { index in
+            TextImage.Shape(
+                rect: CGRect(x: index * 25, y: 0, width: 25, height: 40),
+                color: CGColor(gray: grays[(index + rotation) % 4], alpha: 1))
+        }
+        let image = try #require(TextImage.render([], shapes: shapes, width: 100, height: 40))
+        let pixels = try #require(TextStyleMeter.Pixels(image))
+        let first = try #require(pixels.dominantColor(in: CGRect(x: 0, y: 0, width: 25, height: 40)))
+
+        let backgrounds = (0..<50).compactMap { _ in
+            pixels.dominantColor(in: CGRect(x: 0, y: 0, width: 100, height: 40))
+        }
+
+        #expect(backgrounds.count == 50)
+        #expect(backgrounds.allSatisfy { $0 == first })
+    }
+
+    @Test func picksSameScriptWhenLetterCountsTie() {
+        // 글자 수가 같으면 라틴 → 한글 → 한자·가나 순 (TASK-079)
+        let scripts = (0..<50).map { _ in [TextStyleMeter.script(of: "AI 번역"), TextStyleMeter.script(of: "日本 한국")] }
+
+        #expect(scripts.allSatisfy { $0 == [.latin, .hangul] })
+    }
+
     @Test func tellsBoldFromRegular() async throws {
         let styles = try await measure(
             [
