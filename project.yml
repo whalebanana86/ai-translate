@@ -55,8 +55,8 @@ targets:
         # 배포 전 실제 번들 ID로 변경해야 한다
         PRODUCT_BUNDLE_IDENTIFIER: com.example.AITranslate
         PRODUCT_NAME: AITranslate
-        MARKETING_VERSION: "0.2.3"
-        CURRENT_PROJECT_VERSION: "5"
+        MARKETING_VERSION: "0.2.4"
+        CURRENT_PROJECT_VERSION: "6"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: AI Translate
         INFOPLIST_KEY_LSUIElement: YES
