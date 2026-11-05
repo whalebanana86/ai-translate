@@ -12,6 +12,14 @@ enum TextImage {
         var font = "Helvetica"
         /// 링크처럼 글 아래 밑줄
         var underline = false
+        /// 없으면 `render`의 `foreground`
+        var color: CGColor?
+    }
+
+    /// 글 밑에 칠하는 색 상자(그래프 막대·축, 자막 상자). 왼쪽 위 원점 픽셀 좌표
+    struct Shape {
+        var rect: CGRect
+        var color: CGColor
     }
 
     /// 페이지 위에 떠서 아래 글을 가리는 상자(드롭다운 메뉴 등)
@@ -23,7 +31,7 @@ enum TextImage {
     }
 
     static func render(
-        _ lines: [Line], popups: [Popup] = [], width: Int = 900, height: Int = 400,
+        _ lines: [Line], popups: [Popup] = [], shapes: [Shape] = [], width: Int = 900, height: Int = 400,
         background: CGColor = CGColor(red: 1, green: 1, blue: 1, alpha: 1),
         foreground: CGColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
     ) -> CGImage? {
@@ -36,6 +44,13 @@ enum TextImage {
 
         context.setFillColor(background)
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        for shape in shapes {
+            context.setFillColor(shape.color)
+            context.fill(
+                CGRect(
+                    x: shape.rect.minX, y: CGFloat(height) - shape.rect.maxY, width: shape.rect.width,
+                    height: shape.rect.height))
+        }
         draw(lines, in: context, height: height, foreground: foreground)
         for popup in popups {
             // CGContext는 왼쪽 아래 원점이다
@@ -52,9 +67,10 @@ enum TextImage {
     private static func draw(_ lines: [Line], in context: CGContext, height: Int, foreground: CGColor) {
         for line in lines {
             let font = CTFontCreateWithName(line.font as CFString, line.size, nil)
+            let color = line.color ?? foreground
             let attributes: [NSAttributedString.Key: Any] = [
                 NSAttributedString.Key(kCTFontAttributeName as String): font,
-                NSAttributedString.Key(kCTForegroundColorAttributeName as String): foreground,
+                NSAttributedString.Key(kCTForegroundColorAttributeName as String): color,
             ]
             let ctLine = CTLineCreateWithAttributedString(NSAttributedString(string: line.text, attributes: attributes))
             // CGContext는 왼쪽 아래 원점이고 기준선 위치에 그리므로 변환한다
@@ -63,7 +79,7 @@ enum TextImage {
             CTLineDraw(ctLine, context)
             if line.underline {
                 let width = CTLineGetTypographicBounds(ctLine, nil, nil, nil)
-                context.setFillColor(foreground)
+                context.setFillColor(color)
                 context.fill(
                     CGRect(x: line.x, y: baseline - CTFontGetDescent(font), width: width, height: line.size * 0.08))
             }

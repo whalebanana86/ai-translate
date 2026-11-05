@@ -4,7 +4,7 @@ import CoreGraphics
 ///
 /// Vision은 이모지를 글자로 읽지 못한다. 대부분 빼고 읽지만 엉뚱한 글자로 읽기도 하고(🎉 → "it"·"然", 🤡 → "®", 🚀 → "*"),
 /// 문장 가운데 이모지에서 줄을 둘로 나누기도 한다. 번역 상자는 이모지까지 덮어 이모지가 사라졌다.
-/// - OCR 줄과 같은 높이 띠에서 색 있는 덩어리를 찾는다. 띠 밖으로 크게 넘치는 덩어리(프로필 사진)는 뺀다
+/// - OCR 줄과 같은 높이 띠에서 색 있는 덩어리를 찾는다. 띠 밖으로 크게 넘치는 덩어리(프로필 사진)와 꽉 찬 긴 띠(그래프 막대)는 뺀다
 /// - 진짜 단어 영역과 겹치는 덩어리는 색 글자(파란 링크, 빨간 제목)다. 이모지와 겹친 엉뚱한 글자는 뺀다
 /// - 이모지 자리에 `marker`를 넣고 영역을 `RecognizedLine.emojis`에 둔다. 렌즈는 그 자리에 캡처에서 오린 이모지를 그린다
 public enum EmojiFinder {
@@ -29,6 +29,12 @@ public enum EmojiFinder {
     /// 두 글자 이하 단어를 잘못 읽은 글자로 볼 덩어리 채움(색 있는 픽셀 ÷ 너비×줄 높이). 한 가지 색 이모지(👍 → "de")를 잡는다.
     /// 측정: 이모지 0.31~0.75(😂🔥❤️😊 0.6 이상), 파란·빨간 글자 0.25~0.38 (TASK-055)
     static let junkFill = 0.45
+    /// 꽉 찬 열(덩어리 높이의 이 비율 이상이 색)이 덩어리 높이의 `maxSolidRunRatio`배보다 길게 이어지면 그래프 막대·색 상자다
+    /// (TASK-078: 막대그래프의 파란 막대(너비 ÷ 높이 15~31)를 이모지로 보고 막대 양쪽의 이름과 수치를 한 줄로 이었다).
+    /// 이모지는 둥글거나 사이가 떠서 꽉 찬 열이 높이만큼도 이어지지 않는다(원 0.44배, 네모 이모지도 한 개 높이 안). 이어 붙은 이모지
+    /// (😂🔥)는 덩어리 하나가 되지만 꽉 찬 열은 이모지마다 끊긴다
+    static let solidColumnRatio = 0.9
+    static let maxSolidRunRatio = 2.0
 
     /// 이모지 자리에 표시를 넣고 잘못 읽은 글자를 뺀 줄. 바뀌지 않은 줄은 그대로 돌려준다
     public static func apply(to lines: [RecognizedLine], in image: CGImage) -> [RecognizedLine] {
@@ -232,7 +238,7 @@ public enum EmojiFinder {
             return UInt8(Int(hue) % 6)
         }
 
-        /// 줄 묶음 높이에서 색 있는 열이 이어진 덩어리 중 이모지 크기이고 위·아래로 크게 넘치지 않는 것
+        /// 줄 묶음 높이에서 색 있는 열이 이어진 덩어리 중 이모지 크기이고 위·아래로 크게 넘치지 않으며 막대가 아닌 것
         func blobs(around row: [RecognizedLine]) -> [Blob] {
             guard let rowTop = row.map(\.boundingBox.minY).min(), let rowBottom = row.map(\.boundingBox.maxY).max()
             else { return [] }
@@ -275,17 +281,19 @@ public enum EmojiFinder {
                 var minY = Int.max
                 var maxY = Int.min
                 var sectors = [Int](repeating: 0, count: 6)
+                var columns = [Int](repeating: 0, count: run.count)
                 for y in searchTop..<searchBottom {
                     for x in run where hue[y * width + x] != 0 {
                         minY = min(minY, y)
                         maxY = max(maxY, y)
+                        columns[x - run.lowerBound] += 1
                         if y >= top, y < bottom {
                             sectors[Int(hue[y * width + x]) - 1] += 1
                         }
                     }
                 }
                 guard Double(top - minY) <= overflow, Double(maxY - bottom) <= overflow,
-                    Double(maxY - minY + 1) >= minimum
+                    Double(maxY - minY + 1) >= minimum, !Self.isBar(columns, height: maxY - minY + 1)
                 else { return nil }
                 let colored = max(sectors.reduce(0, +), 1)
                 return Blob(
@@ -293,6 +301,18 @@ public enum EmojiFinder {
                     spread: 1 - Double(sectors.max() ?? 0) / Double(colored),
                     fill: Double(sectors.reduce(0, +)) / (Double(run.count) * lineHeight))
             }
+        }
+
+        /// 열마다 색 있는 픽셀 수(`columns`)로 본 덩어리가 꽉 찬 긴 띠(그래프 막대, 색 상자)인지
+        static func isBar(_ columns: [Int], height: Int) -> Bool {
+            let solid = Double(height) * EmojiFinder.solidColumnRatio
+            var longest = 0
+            var current = 0
+            for count in columns {
+                current = Double(count) >= solid ? current + 1 : 0
+                longest = max(longest, current)
+            }
+            return Double(longest) > Double(height) * EmojiFinder.maxSolidRunRatio
         }
     }
 }

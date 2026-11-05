@@ -170,6 +170,34 @@ struct EmojiFinderTests {
         #expect(result == [link, name])
     }
 
+    @Test func doesNotTakeChartBarForEmoji() {
+        let canvas = Canvas()
+        // 막대그래프 한 행: 이름 · 파란 막대 · 수치. 막대 양 끝이 두 줄에서 줄 높이 1.5배 안이라 두 줄 사이 이모지로 보고 이었다 (TASK-078)
+        let label = line([("Qwen3.5-2B", 100, 120)])
+        let value = line([("3.1x", 760, 50), ("188", 820, 50)])
+        (label.wordBoxes + value.wordBoxes).forEach(canvas.word)
+        canvas.fill(CGRect(x: 240, y: 82, width: 500, height: 26), red: 0.13, green: 0.53, blue: 1)
+
+        let result = EmojiFinder.apply(to: [label, value], in: canvas.image)
+
+        #expect(result == [label, value])
+    }
+
+    @Test func keepsRowOfSquareEmoji() {
+        let canvas = Canvas()
+        // 붙어 있는 네모 이모지 셋(🟥🟥🟥)은 덩어리 하나(너비 ÷ 높이 3.5)가 되지만 꽉 찬 열이 이모지마다 끊긴다
+        let text = line([("This", 100, 60), ("is", 170, 30), ("amazing", 210, 120)])
+        text.wordBoxes.forEach(canvas.word)
+        for x in [345, 379, 413] as [CGFloat] {
+            canvas.fill(CGRect(x: x, y: 81, width: 30, height: 28), red: 0.9, green: 0.15, blue: 0.15)
+        }
+
+        let result = EmojiFinder.apply(to: [text], in: canvas.image)
+
+        #expect(result.map(\.text) == ["This is amazing 🟦"])
+        #expect(result[0].emojis.count == 1)
+    }
+
     @Test func removesMarkersForPlainText() {
         #expect(EmojiFinder.removingMarkers("Congrats!! 🟦 You deserve it 🟦") == "Congrats!! You deserve it")
         #expect(EmojiFinder.removingMarkers("🟦 Launching today") == "Launching today")
@@ -189,5 +217,37 @@ struct EmojiFinderTests {
 
         #expect(lines.map(\.text) == ["This is amazing 🟦", "오늘 날씨 좋다 🟦 산책 가자"])
         #expect(lines.map(\.emojis.count) == [1, 1])
+    }
+
+    @Test func keepsBarChartLabelsAndValuesApart() async throws {
+        // README 막대그래프(Chrome 2배)와 같은 모양: 이름 · 파란 막대 · 수치가 한 행, 행 간격은 글자 크기의 3배쯤, 막대 앞 세로 축.
+        // 막대를 이모지로 보고 행마다 이름과 수치를 이었고, 이은 줄을 막대 높이로 크게 재 행끼리 한 문단이 됐다 (TASK-078)
+        let rows: [(label: String, value: String, end: CGFloat)] = [
+            ("Qwen3.5-2B", "3.1x 188 to 576 tokens/s", 760), ("MiniCPM5-2B", "3.0x 160 to 478 tokens/s", 730),
+            ("Gemma 4 E4B", "2.8x 80 to 224 tokens/s", 680),
+        ]
+        var lines: [TextImage.Line] = []
+        var shapes = [
+            TextImage.Shape(rect: CGRect(x: 236, y: 20, width: 2, height: 280), color: CGColor(gray: 0.6, alpha: 1))
+        ]
+        for (index, row) in rows.enumerated() {
+            let top = 40 + CGFloat(index) * 86
+            lines.append(.init(text: row.label, x: 40, top: top, size: 26))
+            shapes.append(
+                .init(
+                    rect: CGRect(x: 240, y: top + 1, width: row.end - 240, height: 24),
+                    color: CGColor(srgbRed: 0.13, green: 0.53, blue: 1, alpha: 1)))
+            lines.append(.init(text: row.value, x: row.end + 16, top: top, size: 26))
+        }
+        let image = try #require(TextImage.render(lines, shapes: shapes, width: 1200, height: 320))
+
+        let recognized = EmojiFinder.apply(to: try await TextRecognizer().recognize(image), in: image)
+        let blocks = TextBlockGrouper.group(recognized, styles: TextStyleMeter.measure(recognized, in: image))
+
+        #expect(!blocks.contains { $0.text.contains(EmojiFinder.marker) })
+        #expect(blocks.allSatisfy { $0.lines.count == 1 }, "\(blocks.map(\.text))")
+        let values = blocks.filter { $0.text.contains("tokens") }
+        #expect(values.count == 3)
+        #expect(!values.contains { value in rows.contains { value.text.contains($0.label.prefix(5)) } })
     }
 }
