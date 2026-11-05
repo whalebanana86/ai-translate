@@ -62,6 +62,7 @@ macOS 메뉴바 앱. 사용자가 단축키를 누르고 스크린샷(⌘⇧4)�
 
 | 문서 | 영역 | 주요 코드 |
 |---|---|---|
+| `docs/design/architecture.md` | 전체 구조·처리 순서 그림, 저장 형식(번역 기억·설정 키), 통신 형식(엔진 입출력), 공개 인터페이스, 느려질 때 볼 곳, 사람이 리뷰할 변경 | `LensSession`, `TranslationProvider`, `TranslationPayload`, `TranslationMemoryStore` |
 | `docs/design/capture.md` | 영역 선택, 캡처, 변화 감시·인식 주기, 계속 바뀌는 화면, 스크롤 뒤 번역 숨김, 단계별 시간 로그 | `SelectionOverlay`, `ScreenCapturer`, `ChangeTracker`, `CaptureSchedule`, `WindowStack` |
 | `docs/design/recognition.md` | OCR, 잡음, 문단 묶기, 작성자 줄, 메뉴에 가려진 문단, 이모지, 줄바꿈, OCR 오인식("AI" → "Al") | `TextRecognizer`, `TextBlockGrouper`, `OccludedParagraphs`, `EmojiFinder`, `AIMisreading` |
 | `docs/design/lens.md` | 렌즈 창, 번역 위치, 글자 크기·굵기·줄 간격, 색, 가림, 도구 막대, 일시정지, 번역 기록 패널 | `TranslationLens`, `LensGeometry`, `TextStyleMeter`, `FontSizer`, `BlockColors`, `TranslationTranscript` |
